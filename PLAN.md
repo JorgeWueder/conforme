@@ -4,7 +4,7 @@
 
 | Fase | Estado |
 |---|---|
-| F1 Núcleo | Hecha y verificada contra Neon (ramas dev, test y demo). **Único pendiente: el enlace público en Streamlit Cloud** (lo haces tú: ver abajo) |
+| F1 Núcleo | Hecha y verificada contra Neon (ramas dev, test y demo). Desplegada en https://conforme-gyc3rgxs6tbygkrtgurhbn.streamlit.app/ (rama `demo`) |
 | F2 Conformidad | Hecha. Pruebas automáticas y flujo completo en el navegador con los tres roles, contra Neon |
 | F3 Sello | Pendiente |
 | F4 Lectura con IA | Pendiente (opcional) |
@@ -21,7 +21,7 @@
 - [x] Ramas Neon `test` y `demo` creadas; sus URL están en `.env` como `DATABASE_URL_TEST` y `DATABASE_URL_DEMO` (13 nov 2026).
 - [x] `pytest` contra la rama `test` de Neon: 113 pruebas pasan (~3 min por la latencia de red). Ya no depende del Docker local.
 - [x] Rama `demo`: `sembrar --reiniciar` + `medir_deteccion` → 300 expedientes, 28 alertas, cobertura 28/28, precisión 28/28, 0 falsos positivos. Para apuntar un script a `demo`: definir `DATABASE_URL` con el valor de `DATABASE_URL_DEMO` en esa ejecución.
-- [ ] **Despliegue con enlace público: NO hecho.** El remoto `origin` (github.com/JorgeWueder/conforme) está configurado, pero no se ha hecho push. Pasos: (1) `git push -u origin main`; (2) en share.streamlit.io crear la app con `app.py`; (3) Secrets: `DATABASE_URL` = URL de `DATABASE_URL_DEMO` (ya es con pooler), `DEMO_PASSWORD`, `BASE_URL` = URL pública; (4) abrir el enlace y comprobar login y banner. `requirements.txt` ya está listo.
+- [x] Despliegue en Streamlit Cloud (rama `main`, secretos con la rama `demo`): el enlace público abre el login con el banner "Datos sintéticos" (verificado en el navegador, 13 nov 2026). Login con los tres roles contra la app desplegada: pendiente de comprobar.
 - Nota: la rama `dev` usa conexión directa (`DATABASE_URL`); `DATABASE_URL_POOLED` es su versión con pooler. Las URL de `test` y `demo` ya son con pooler.
 
 ### F2 — qué se ejecutó de verdad
@@ -72,7 +72,7 @@
 - `conformidad.codigo_sello` ya existe (TEXT UNIQUE, NULL): F3 lo llena. Añadir `qrcode` a `requirements.txt`.
 - Las evidencias sembradas son PNG de 16×12 de un solo color (sirven para las miniaturas de `verificar`).
 - Expedientes de INF sin conformidad para la demo en vivo: `EXP-2026-0016`, `-0066`, `-0232`, `-0295`.
-- Sigue pendiente de F1: solo el despliegue público.
+- Pendiente menor de F1: probar el login de los tres roles en el enlace público; `BASE_URL` en los secretos debe ser la URL real.
 
 ---
 
