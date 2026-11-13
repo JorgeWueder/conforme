@@ -4,7 +4,7 @@
 
 | Fase | Estado |
 |---|---|
-| F1 Núcleo | Hecha y verificada en local. **Pendiente: desplegar** (necesita Neon, GitHub y Streamlit Cloud) |
+| F1 Núcleo | Hecha y verificada contra Neon (ramas dev, test y demo). **Único pendiente: el enlace público en Streamlit Cloud** (lo haces tú: ver abajo) |
 | F2 Conformidad | Hecha. Pruebas automáticas y flujo completo en el navegador con los tres roles, contra Neon |
 | F3 Sello | Pendiente |
 | F4 Lectura con IA | Pendiente (opcional) |
@@ -18,9 +18,11 @@
 - [x] Navegador, `oci1` (auditor): "Verificar integridad" → íntegra (600); tras un `UPDATE` manual al registro 499 → "alterada en el registro n.º 499"; restaurado → íntegra.
 - [x] `/verificar` abre sin sesión (marcador de posición hasta F3); `/bitacora` sin sesión lleva al login.
 - [x] Neon (Postgres 18, una sola base `neondb`): migrar, sembrar (7 s) y verificar cadena → íntegra, 600 registros, mismo hash final que en local. Login y lista de 300 expedientes probados en el navegador contra Neon.
-- [ ] **Despliegue con enlace público: NO hecho** (falta repositorio en GitHub y Streamlit Cloud).
-- [ ] **`pytest` NO se ha corrido contra Neon**: solo hay una base en Neon y las pruebas borran el esquema. Siguen corriendo contra el Postgres 16 desechable en Docker (`conforme-pruebas`, puerto 55432). Falta crear las ramas `test` y `demo` y poner `DATABASE_URL_TEST`.
-- Nota: la app usa `DATABASE_URL` (conexión directa). `.env` también trae `DATABASE_URL_POOLED`; para el despliegue conviene usar esa como `DATABASE_URL` en los secretos de Streamlit.
+- [x] Ramas Neon `test` y `demo` creadas; sus URL están en `.env` como `DATABASE_URL_TEST` y `DATABASE_URL_DEMO` (13 nov 2026).
+- [x] `pytest` contra la rama `test` de Neon: 113 pruebas pasan (~3 min por la latencia de red). Ya no depende del Docker local.
+- [x] Rama `demo`: `sembrar --reiniciar` + `medir_deteccion` → 300 expedientes, 28 alertas, cobertura 28/28, precisión 28/28, 0 falsos positivos. Para apuntar un script a `demo`: definir `DATABASE_URL` con el valor de `DATABASE_URL_DEMO` en esa ejecución.
+- [ ] **Despliegue con enlace público: NO hecho.** El remoto `origin` (github.com/JorgeWueder/conforme) está configurado, pero no se ha hecho push. Pasos: (1) `git push -u origin main`; (2) en share.streamlit.io crear la app con `app.py`; (3) Secrets: `DATABASE_URL` = URL de `DATABASE_URL_DEMO` (ya es con pooler), `DEMO_PASSWORD`, `BASE_URL` = URL pública; (4) abrir el enlace y comprobar login y banner. `requirements.txt` ya está listo.
+- Nota: la rama `dev` usa conexión directa (`DATABASE_URL`); `DATABASE_URL_POOLED` es su versión con pooler. Las URL de `test` y `demo` ya son con pooler.
 
 ### F2 — qué se ejecutó de verdad
 - [x] `pytest`: 113 pruebas pasan (Postgres 16 desechable en Docker). Incluye un archivo por regla, motor, semáforo, flujo de alertas, permisos, aislamiento y siembra reproducible.
@@ -70,7 +72,7 @@
 - `conformidad.codigo_sello` ya existe (TEXT UNIQUE, NULL): F3 lo llena. Añadir `qrcode` a `requirements.txt`.
 - Las evidencias sembradas son PNG de 16×12 de un solo color (sirven para las miniaturas de `verificar`).
 - Expedientes de INF sin conformidad para la demo en vivo: `EXP-2026-0016`, `-0066`, `-0232`, `-0295`.
-- Sigue pendiente de F1: desplegar y crear las ramas `test` y `demo` en Neon.
+- Sigue pendiente de F1: solo el despliegue público.
 
 ---
 
