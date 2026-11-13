@@ -125,6 +125,8 @@ else:
     if actor.rol == ROL_AREA_USUARIA:
         if st.button("Registrar conformidad", type="primary", icon=":material/task_alt:"):
             st.switch_page("paginas/conformidad.py")
+        if st.button("Leer términos de referencia con IA", icon=":material/auto_awesome:"):
+            st.switch_page("paginas/lectura_ia.py")
 
 hay_evidencias = any(e["evidencias"] for e in entregables)
 ver_evidencias = hay_evidencias and st.toggle("Mostrar evidencias")

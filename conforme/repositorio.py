@@ -13,11 +13,12 @@ from sqlalchemy.orm import Session, aliased
 from conforme import bitacora, evidencias, sello
 from conforme import entregables as validacion_entregables
 from conforme.errores import ErrorValidacion
+from conforme.ia.extractor import PropuestaIA
 from conforme.modelos import (
     ESTADO_ABIERTA, ESTADO_CERRADA, ESTADO_CON_DESCARGO, ESTADO_ESCALADA,
     ROL_AREA_USUARIA, ROL_AUDITOR, ROL_TESORERIA,
     Alerta, AlertaRevision, Area, Bitacora, Conformidad, ConformidadEntregable,
-    Entregable, Evidencia, Expediente, Pago, Persona, Proveedor,
+    Entregable, Evidencia, Expediente, ExtraccionIA, Pago, Persona, Proveedor,
 )
 from conforme.normativa import SEVERIDAD_ALTA, SEVERIDAD_MEDIA
 from conforme.permisos import Actor, PermisoDenegado, exigir_rol, filtro_expedientes
@@ -701,3 +702,142 @@ def consultar_sello(sesion: Session, codigo: str | None) -> dict | None:
         "problemas": problemas,
         "registros_verificados": cadena.total,
     }
+
+
+# --- F4: lectura con IA (propuesta → revisión humana) -----------------------------
+
+def _expediente_para_ia(sesion: Session, actor: Actor, expediente_id: int) -> Expediente:
+    """Solo el área usuaria, sobre un expediente de su área que aún no tiene conformidad."""
+    exigir_rol(actor, ROL_AREA_USUARIA)
+    expediente = _expediente_en_alcance(sesion, actor, expediente_id)
+    if sesion.execute(
+        select(Conformidad.id).where(Conformidad.expediente_id == expediente.id)
+    ).first():
+        raise ErrorValidacion(
+            "El expediente ya tiene conformidad: sus entregables no se pueden ampliar.")
+    return expediente
+
+
+def registrar_propuesta_ia(
+    sesion: Session, actor: Actor, expediente_id: int, *, archivo_nombre: str,
+    archivo_sha256: str, propuesta: PropuestaIA, origen: str, aviso: str | None,
+) -> int:
+    """Guarda lo que leyó la IA como PROPUESTA. No toca `entregable`."""
+    expediente = _expediente_para_ia(sesion, actor, expediente_id)
+    if origen not in ("modelo", "respaldo"):
+        raise ErrorValidacion("Origen de la extracción no admitido.")
+    ahora = datetime.now(timezone.utc)
+    extraccion = ExtraccionIA(
+        expediente_id=expediente.id, archivo_nombre=archivo_nombre or "documento.pdf",
+        archivo_sha256=archivo_sha256, resultado=propuesta.model_dump(mode="json"),
+        origen=origen, aviso=aviso, estado="propuesta", creado_por=actor.persona_id,
+        creado_en=ahora,
+    )
+    sesion.add(extraccion)
+    sesion.flush()
+    bitacora.registrar(
+        sesion, ts=ahora, actor_id=actor.persona_id, accion="ia.propuesta",
+        entidad="extraccion_ia", entidad_id=extraccion.id, expediente_id=expediente.id,
+        documento_sha256=archivo_sha256,
+        detalle={"documento": extraccion.archivo_nombre, "origen": origen,
+                 "entregables_propuestos": len(propuesta.entregables),
+                 "resumen": f"Lectura con IA ({origen}): {len(propuesta.entregables)} "
+                            "entregables propuestos, pendientes de revisión."},
+    )
+    return extraccion.id
+
+
+def listar_extracciones(sesion: Session, actor: Actor, expediente_id: int) -> list[dict]:
+    """Propuestas del expediente (la más reciente primero)."""
+    _expediente_en_alcance(sesion, actor, expediente_id)
+    filas = sesion.execute(
+        select(
+            ExtraccionIA.id, ExtraccionIA.archivo_nombre, ExtraccionIA.archivo_sha256,
+            ExtraccionIA.resultado, ExtraccionIA.origen, ExtraccionIA.aviso,
+            ExtraccionIA.estado, ExtraccionIA.creado_en, ExtraccionIA.revisado_en,
+            _NOMBRE_PERSONA.label("creado_por"),
+        )
+        .join(Persona, Persona.id == ExtraccionIA.creado_por)
+        .where(ExtraccionIA.expediente_id == expediente_id)
+        .order_by(ExtraccionIA.id.desc())
+    )
+    return [dict(f._mapping) for f in filas]
+
+
+def _extraccion_pendiente(sesion: Session, actor: Actor, extraccion_id: int) -> ExtraccionIA:
+    exigir_rol(actor, ROL_AREA_USUARIA)
+    extraccion = sesion.execute(
+        select(ExtraccionIA)
+        .join(Expediente, Expediente.id == ExtraccionIA.expediente_id)
+        .where(ExtraccionIA.id == extraccion_id, filtro_expedientes(actor))
+    ).scalar_one_or_none()
+    if extraccion is None:
+        raise PermisoDenegado("Propuesta inexistente o fuera de tu alcance.")
+    if extraccion.estado != "propuesta":
+        raise ErrorValidacion("Esta propuesta ya fue revisada.")
+    return extraccion
+
+
+def aprobar_extraccion(sesion: Session, actor: Actor, extraccion_id: int,
+                       descripciones: list[str]) -> int:
+    """Aprueba la propuesta con las descripciones que la persona dejó tras editarla.
+
+    Los entregables se AÑADEN al expediente (origen «ia») con numeración desde el siguiente
+    al último existente. Devuelve cuántos se añadieron.
+    """
+    extraccion = _extraccion_pendiente(sesion, actor, extraccion_id)
+    expediente = _expediente_para_ia(sesion, actor, extraccion.expediente_id)
+    descripciones = [d.strip() for d in descripciones if d and d.strip()]
+    ultimo = sesion.execute(
+        select(func.coalesce(func.max(Entregable.numero), 0))
+        .where(Entregable.expediente_id == expediente.id)
+    ).scalar_one()
+    nuevos = [{"numero": ultimo + i, "descripcion": d}
+              for i, d in enumerate(descripciones, start=1)]
+    total = len(nuevos) + sesion.execute(
+        select(func.count()).select_from(Entregable)
+        .where(Entregable.expediente_id == expediente.id)
+    ).scalar_one()
+    limpios, errores = validacion_entregables.validar(nuevos)
+    if total > validacion_entregables.MAXIMO:
+        errores.append(f"El expediente quedaría con más de {validacion_entregables.MAXIMO} "
+                       "entregables.")
+    if errores:
+        raise ErrorValidacion("Entregables: " + " ".join(errores))
+
+    ahora = datetime.now(timezone.utc)
+    sesion.add_all(
+        Entregable(expediente_id=expediente.id, numero=e["numero"],
+                   descripcion=e["descripcion"], origen="ia")
+        for e in limpios
+    )
+    extraccion.estado, extraccion.revisado_por, extraccion.revisado_en = (
+        "aprobada", actor.persona_id, ahora)
+    sesion.flush()
+    bitacora.registrar(
+        sesion, ts=ahora, actor_id=actor.persona_id, accion="ia.aprobada",
+        entidad="extraccion_ia", entidad_id=extraccion.id, expediente_id=expediente.id,
+        documento_sha256=extraccion.archivo_sha256,
+        detalle={"documento": extraccion.archivo_nombre, "origen": extraccion.origen,
+                 "entregables_agregados": len(limpios),
+                 "resumen": f"Propuesta de IA aprobada: {len(limpios)} entregables añadidos."},
+    )
+    return len(limpios)
+
+
+def rechazar_extraccion(sesion: Session, actor: Actor, extraccion_id: int,
+                        motivo: str = "") -> None:
+    """Rechaza la propuesta. No crea entregables."""
+    extraccion = _extraccion_pendiente(sesion, actor, extraccion_id)
+    ahora = datetime.now(timezone.utc)
+    extraccion.estado, extraccion.revisado_por, extraccion.revisado_en = (
+        "rechazada", actor.persona_id, ahora)
+    sesion.flush()
+    motivo = (motivo or "").strip()
+    bitacora.registrar(
+        sesion, ts=ahora, actor_id=actor.persona_id, accion="ia.rechazada",
+        entidad="extraccion_ia", entidad_id=extraccion.id,
+        expediente_id=extraccion.expediente_id, documento_sha256=extraccion.archivo_sha256,
+        detalle={"documento": extraccion.archivo_nombre, "motivo": motivo,
+                 "resumen": "Propuesta de IA rechazada" + (f": {motivo}" if motivo else ".")},
+    )

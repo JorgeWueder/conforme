@@ -17,7 +17,7 @@ from conforme.modelos import (
 from conforme.reglas import motor
 from datos import generador
 
-_TABLAS = ("anomalia_sembrada, alerta_revision, alerta, pago, evidencia, "
+_TABLAS = ("anomalia_sembrada, extraccion_ia, alerta_revision, alerta, pago, evidencia, "
            "conformidad_entregable, conformidad, entregable, bitacora, expediente, "
            "usuario, persona, proveedor, area")
 

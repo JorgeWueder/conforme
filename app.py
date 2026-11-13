@@ -41,6 +41,8 @@ else:
         paginas += [
             st.Page("paginas/nuevo_expediente.py", title="Nuevo expediente",
                     icon=":material/note_add:"),
+            st.Page("paginas/lectura_ia.py", title="Lectura con IA",
+                    icon=":material/auto_awesome:"),
             st.Page("paginas/conformidad.py", title="Registrar conformidad",
                     icon=":material/task_alt:"),
         ]

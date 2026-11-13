@@ -25,6 +25,9 @@ ETIQUETAS_ACCION = {
     "alerta.descargo": "Descargo presentado",
     "alerta.cerrada": "Alerta cerrada",
     "alerta.escalada": "Alerta escalada",
+    "ia.propuesta": "Lectura con IA",
+    "ia.aprobada": "Propuesta de IA aprobada",
+    "ia.rechazada": "Propuesta de IA rechazada",
 }
 
 ETIQUETAS_SEMAFORO = {"rojo": "🔴 Rojo", "ambar": "🟡 Ámbar", "verde": "🟢 Verde"}

@@ -166,3 +166,19 @@ class AlertaRevision(Base):
     autor_id: Mapped[int] = mapped_column(ForeignKey("persona.id"))
     texto: Mapped[str] = mapped_column(Text)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ExtraccionIA(Base):
+    __tablename__ = "extraccion_ia"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    expediente_id: Mapped[int] = mapped_column(ForeignKey("expediente.id"))
+    archivo_nombre: Mapped[str] = mapped_column(Text)
+    archivo_sha256: Mapped[str] = mapped_column(CHAR(64))
+    resultado: Mapped[dict] = mapped_column(JSONB)
+    origen: Mapped[str] = mapped_column(Text)
+    aviso: Mapped[str | None] = mapped_column(Text)
+    estado: Mapped[str] = mapped_column(Text)
+    creado_por: Mapped[int] = mapped_column(ForeignKey("persona.id"))
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revisado_por: Mapped[int | None] = mapped_column(ForeignKey("persona.id"))
+    revisado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

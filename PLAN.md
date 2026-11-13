@@ -1,13 +1,13 @@
 # Plan — MVP "Conforme" (hackathon, entrega 25 nov 2026)
 
-## Estado (actualizado al cerrar F3, 13 nov 2026)
+## Estado (actualizado al cerrar F4, 13 nov 2026)
 
 | Fase | Estado |
 |---|---|
 | F1 Núcleo | Hecha y verificada contra Neon (ramas dev, test y demo). Desplegada en https://conforme-gyc3rgxs6tbygkrtgurhbn.streamlit.app/ (rama `demo`) |
 | F2 Conformidad | Hecha. Pruebas automáticas y flujo completo en el navegador con los tres roles, contra Neon |
 | F3 Sello | Hecha salvo la prueba de cámara en un celular real y el redespliegue (ver abajo) |
-| F4 Lectura con IA | Pendiente (opcional) |
+| F4 Lectura con IA | Hecha con modelo simulado y respaldo; la llamada a un modelo real NO está probada (no hay clave) |
 
 ### F1 — qué se ejecutó de verdad
 - [x] Migraciones y siembra sobre base vacía: 12 áreas, 60 personas, 120 proveedores, 300 expedientes, 600 registros de bitácora.
@@ -53,6 +53,18 @@
 - [x] UX (13 nov): sin sesión la barra lateral queda oculta (`st.navigation(position="hidden")`); el login ofrece el enlace "Verificar un sello", y `verificar` trae su propio campo de código y un enlace de vuelta al login. Con sesión, "Verificar sello" sigue en la barra. `verificar` rediseñada (métricas, entregables plegables, miniaturas en columnas). Revisado en el navegador en local; falta verlo en el despliegue tras el push. `streamlit>=1.55` en `requirements.txt`.
 - Decisión: el hash de la bitácora no incluye el código del sello, así que la siembra sigue siendo determinista en la bitácora; los códigos son aleatorios en cada siembra.
 - Dependencias: `qrcode` en `requirements.txt`; `opencv-python-headless` solo en `requirements-dev.txt` (la prueba del QR se omite si no está).
+
+### F4 — qué se ejecutó de verdad
+- [x] `004_ia.sql` (tabla `extraccion_ia`: propuesta / aprobada / rechazada, origen modelo / respaldo). Aplicada en dev y en la rama `demo` de Neon.
+- [x] `conforme/ia/extractor.py`: texto del PDF con `pypdf` (sin OCR: un PDF sin texto se rechaza con mensaje claro), esquema `PropuestaIA` (entregables, plazo, penalidades) y `with_structured_output` de LangChain. Proveedor por `LLM_PROVIDER` (`anthropic` por defecto de diseño; `openai` exige instalar `langchain-openai`), `LLM_MODEL`, `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`. El texto del PDF se trata como dato (instrucción de sistema + el modelo solo devuelve el esquema; nunca escribe en la base).
+- [x] Respaldo: `datos/respaldo_ia/terminos_referencia.pdf` y `.json` (regenerables con `python -m scripts.generar_pdf_ia`, necesita `reportlab`). Se usa si no hay proveedor o clave, si la llamada falla o si la respuesta no cumple el esquema; el aviso nombra el tipo de error, no su mensaje.
+- [x] `repositorio.py`: `registrar_propuesta_ia`, `listar_extracciones`, `aprobar_extraccion`, `rechazar_extraccion`. Solo área usuaria del expediente y solo si aún no tiene conformidad. Aprobar AÑADE los entregables editados (origen `ia`, numeración desde el último + 1); rechazar no crea nada. Cada paso queda en bitácora (`ia.propuesta`, `ia.aprobada`, `ia.rechazada`, con el SHA-256 del PDF).
+- [x] `paginas/lectura_ia.py` ("Lectura con IA" en el menú del área usuaria y botón en el detalle del expediente): subir PDF, PDF de ejemplo descargable, tabla editable, aprobar / rechazar, aviso visible "Resultado de respaldo".
+- [x] `pytest`: 18 pruebas nuevas en `tests/test_extractor.py` con modelo simulado (esquema, tope de texto, fallos de red / respuesta inválida / vacía → respaldo, sin clave → respaldo, aprobación obligatoria, rechazo no crea entregables, una sola revisión, permisos por rol y área, expediente con conformidad). Suite completa: 150 pruebas pasan contra la rama `test` de Neon (~4,5 min).
+- [x] Navegador (local, Neon dev, `inf1`): propuesta de respaldo en `EXP-2026-0016` → aviso de respaldo visible → aprobar → 4 entregables nuevos (n.º 4–7) y dos eventos en la línea de tiempo.
+- [ ] No verificado: la subida del PDF desde el navegador (el navegador integrado no sube archivos; la propuesta se creó con el mismo código por script) y cualquier llamada a un modelo real. Para probarlo: poner `LLM_PROVIDER=anthropic` y `ANTHROPIC_API_KEY` en `.env` (local) o en los secretos de Streamlit.
+- Decisiones: los entregables aprobados se añaden (no reemplazan) porque un expediente siempre nace con al menos uno; plazo y penalidades del documento son solo informativos (no se guardan); el PDF no se almacena, solo su huella.
+- Dependencias nuevas: `pypdf`, `pydantic`, `langchain-core`, `langchain-anthropic` (requirements.txt); `reportlab` (requirements-dev.txt).
 
 ### Decisiones tomadas en F2
 - **R3 = conformidad tardía** (decidido contigo): alerta si la conformidad se emite más de `CONFORMIDAD_PLAZO_MAXIMO_DIAS` después de la entrega real.
