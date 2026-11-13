@@ -72,6 +72,13 @@
 - Detalle del expediente: bloque "Resumen" (conformidad, cumplidos con evidencia x de n, alertas sin cerrar, pagos) con aviso de qué entregables se dieron por cumplidos sin evidencia; cada entregable lleva una etiqueta de color (verde "Cumplido · con evidencia", naranja "Cumplido · SIN evidencia", rojo "No cumplido", gris "Sin conformidad"); aviso en Pagos si hay alertas sin cerrar.
 - Página pública `verificar`: mismas etiquetas y un aviso "N de M entregables sin evidencia. Que el rastro sea íntegro no significa que la conformidad esté respaldada". Revisado en el navegador en local (`EXP-2026-0300`).
 
+### Ajuste de F4: coherencia documento-expediente (13 nov 2026)
+- Problema visto en la prueba: el PDF de ejemplo (mantenimiento de cómputo) se podía añadir a un expediente de luminarias sin ningún aviso. La IA leía bien el PDF; faltaba contrastarlo con el expediente.
+- El extractor recibe el expediente (tipo, descripción, plazo) y `PropuestaIA` incluye `objeto`, `corresponde_al_expediente` (true/false/null) y `motivo_discrepancia`. `avisos_de_coherencia` (función pura) devuelve: error si no corresponde, aviso si no se pudo comprobar (siempre con el respaldo), aviso si el plazo difiere y aviso si hay entregables repetidos.
+- `lectura_ia.py`: muestra el expediente y sus entregables actuales antes de subir, el objeto del documento junto al del expediente y los avisos; si el modelo dice que no corresponde, "Aprobar" queda deshabilitado hasta marcar una casilla de confirmación.
+- El PDF de ejemplo y el respaldo pasaron a ser los del servicio de limpieza y desinfección: coinciden con `EXP-2026-0295` (servicio, 15 días), que es el expediente para demostrar el caso correcto. Usarlo con `EXP-2026-0016` (luminarias) demuestra el aviso de no correspondencia.
+- Verificado con el modelo real (`gpt-5-nano`): 0016 → `corresponde: false` con motivo y aviso de plazo (15 vs 90); 0295 → `corresponde: true`, sin avisos. La página se ejecutó con `AppTest` en ambos casos (Aprobar deshabilitado → habilitado al confirmar; sin bloqueo en 0295). `tests/test_extractor.py`: 24 pruebas pasan (suite completa no repetida tras este ajuste).
+
 ### Decisiones tomadas en F2
 - **R3 = conformidad tardía** (decidido contigo): alerta si la conformidad se emite más de `CONFORMIDAD_PLAZO_MAXIMO_DIAS` después de la entrega real.
 - R1 da **una** alerta por expediente que lista los entregables cumplidos sin evidencia. Un entregable marcado "no cumplido" no exige evidencia.

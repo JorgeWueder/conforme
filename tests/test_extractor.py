@@ -53,7 +53,8 @@ def test_el_pdf_de_ejemplo_tiene_texto():
 def test_el_respaldo_es_valido_y_coincide_con_el_pdf_de_ejemplo():
     respaldo = extractor.cargar_respaldo()
     texto = extractor.texto_de_pdf(PDF)
-    assert respaldo.entregables and respaldo.plazo_dias == 30
+    assert respaldo.entregables and respaldo.plazo_dias == 15
+    assert respaldo.objeto and respaldo.corresponde_al_expediente is None
     assert all(e.descripcion[:30] in texto for e in respaldo.entregables)
 
 
@@ -82,7 +83,61 @@ def test_con_modelo_se_usa_su_resultado_sin_aviso():
 def test_el_texto_enviado_al_modelo_tiene_tope():
     modelo = ModeloFalso(PROPUESTA)
     extractor.extraer(PDF, modelo=modelo)
-    assert len(modelo.mensajes[1][1]) <= extractor.CARACTERES_MAXIMOS
+    assert len(modelo.mensajes[1][1]) <= extractor.CARACTERES_MAXIMOS + 20  # + rótulo
+
+
+def test_el_modelo_recibe_el_expediente_para_comprobar_la_correspondencia():
+    modelo = ModeloFalso(PROPUESTA)
+    exp = {"tipo": "bien", "descripcion": "Adquisición de luminarias LED", "plazo_dias": 90}
+    extractor.extraer(PDF, modelo=modelo, expediente=exp)
+    mensaje = modelo.mensajes[1][1]
+    assert "luminarias LED" in mensaje and "90 días" in mensaje
+    assert mensaje.index("EXPEDIENTE") < mensaje.index("DOCUMENTO:")
+    assert "corresponde_al_expediente" in modelo.mensajes[0][1]
+
+
+EXPEDIENTE = {"plazo_dias": 15}
+
+
+def _avisos(**cambios):
+    datos = dict(objeto="Limpieza", corresponde_al_expediente=True,
+                 entregables=[EntregableIA(numero=1, descripcion="Plan de trabajo")],
+                 plazo_dias=15)
+    datos.update(cambios)
+    return extractor.avisos_de_coherencia(PropuestaIA(**datos), EXPEDIENTE, "modelo", [])
+
+
+def test_sin_discrepancias_no_hay_avisos():
+    assert _avisos() == []
+
+
+def test_documento_que_no_corresponde_es_un_error_con_su_motivo():
+    [(nivel, texto)] = _avisos(corresponde_al_expediente=False,
+                               motivo_discrepancia="Trata de luminarias")
+    assert nivel == "error" and "NO parece corresponder" in texto and "luminarias" in texto
+
+
+def test_correspondencia_desconocida_es_un_aviso_y_menciona_el_respaldo():
+    [(nivel, texto)] = _avisos(corresponde_al_expediente=None)
+    assert nivel == "aviso" and "No se pudo comprobar" in texto
+    [(_, texto)] = extractor.avisos_de_coherencia(
+        extractor.cargar_respaldo(), {"plazo_dias": 15}, "respaldo", [])
+    assert "respaldo" in texto
+
+
+def test_plazo_distinto_es_un_aviso():
+    [(nivel, texto)] = _avisos(plazo_dias=30)
+    assert nivel == "aviso" and "30 días" in texto and "15 días" in texto
+    assert _avisos(plazo_dias=None) == []
+
+
+def test_entregables_repetidos_se_avisan_sin_importar_mayusculas_ni_punto_final():
+    avisos = extractor.avisos_de_coherencia(
+        PropuestaIA(corresponde_al_expediente=True, entregables=[
+            EntregableIA(numero=1, descripcion="Plan de trabajo."),
+            EntregableIA(numero=2, descripcion="Otro")]),
+        EXPEDIENTE, "modelo", ["plan DE trabajo"])
+    assert len(avisos) == 1 and "n.º 1" in avisos[0][1]
 
 
 @pytest.mark.parametrize("modelo", [

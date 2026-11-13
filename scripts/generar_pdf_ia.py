@@ -13,18 +13,19 @@ from reportlab.pdfgen import canvas
 from conforme.ia.extractor import PDF_EJEMPLO, RESPALDO_JSON
 
 TITULO = "TÉRMINOS DE REFERENCIA"
-SUBTITULO = "Servicio de mantenimiento de equipos de cómputo y red de la sede central"
+SUBTITULO = "Servicio de limpieza y desinfección de ambientes de la sede central"
+OBJETO = SUBTITULO
 ENTREGABLES = [
-    "Informe de diagnóstico del estado de 60 equipos de cómputo y 8 switches",
-    "Acta de mantenimiento preventivo de los equipos de cómputo",
-    "Acta de reemplazo de componentes defectuosos con su garantía",
+    "Plan de trabajo y cronograma de limpieza por ambiente",
+    "Acta de desinfección de ambientes críticos con los productos utilizados",
+    "Certificado de los insumos y productos empleados",
     "Informe final con recomendaciones y registro fotográfico",
 ]
-PLAZO_DIAS = 30
+PLAZO_DIAS = 15
 PENALIDADES = [
     "Penalidad por mora en la ejecución de la prestación, de 0.10 x monto / (0.40 x plazo) "
     "por cada día de atraso, hasta un máximo del 10 % del monto contratado.",
-    "Penalidad por no presentar el informe final dentro de los 5 días posteriores al "
+    "Penalidad por no presentar el informe final dentro de los 3 días posteriores al "
     "término del servicio.",
 ]
 
@@ -69,6 +70,9 @@ def main():
     c.save()
 
     RESPALDO_JSON.write_text(json.dumps({
+        "objeto": OBJETO,
+        "corresponde_al_expediente": None,
+        "motivo_discrepancia": "",
         "entregables": [{"numero": i, "descripcion": e} for i, e in enumerate(ENTREGABLES, 1)],
         "plazo_dias": PLAZO_DIAS,
         "penalidades": PENALIDADES,

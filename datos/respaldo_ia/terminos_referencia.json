@@ -1,25 +1,28 @@
 {
+  "objeto": "Servicio de limpieza y desinfección de ambientes de la sede central",
+  "corresponde_al_expediente": null,
+  "motivo_discrepancia": "",
   "entregables": [
     {
       "numero": 1,
-      "descripcion": "Informe de diagnóstico del estado de 60 equipos de cómputo y 8 switches"
+      "descripcion": "Plan de trabajo y cronograma de limpieza por ambiente"
     },
     {
       "numero": 2,
-      "descripcion": "Acta de mantenimiento preventivo de los equipos de cómputo"
+      "descripcion": "Acta de desinfección de ambientes críticos con los productos utilizados"
     },
     {
       "numero": 3,
-      "descripcion": "Acta de reemplazo de componentes defectuosos con su garantía"
+      "descripcion": "Certificado de los insumos y productos empleados"
     },
     {
       "numero": 4,
       "descripcion": "Informe final con recomendaciones y registro fotográfico"
     }
   ],
-  "plazo_dias": 30,
+  "plazo_dias": 15,
   "penalidades": [
     "Penalidad por mora en la ejecución de la prestación, de 0.10 x monto / (0.40 x plazo) por cada día de atraso, hasta un máximo del 10 % del monto contratado.",
-    "Penalidad por no presentar el informe final dentro de los 5 días posteriores al término del servicio."
+    "Penalidad por no presentar el informe final dentro de los 3 días posteriores al término del servicio."
   ]
 }
