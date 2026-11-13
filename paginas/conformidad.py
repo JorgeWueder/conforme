@@ -46,8 +46,20 @@ if not entregables:
     st.warning("Este expediente no tiene entregables: no hay sobre qué dar conformidad.")
     st.stop()
 
+movil = st.toggle(
+    "Vista móvil", value=False, key="vista_movil",
+    help="Una columna, botones grandes y cámara del celular para las evidencias.",
+)
+if movil:
+    st.markdown(
+        "<style>.stButton button, .stFormSubmitButton button, .stDownloadButton button"
+        "{min-height:3.4rem;font-size:1.15rem;width:100%}"
+        ".stCheckbox label{font-size:1.15rem}</style>",
+        unsafe_allow_html=True,
+    )
+
 with st.form("conformidad"):
-    columnas = st.columns(3)
+    columnas = st.columns(1) * 3 if movil else st.columns(3)
     if exp["fecha_entrega_real"]:
         columnas[0].markdown(f"**Entrega real**  \n{fecha(exp['fecha_entrega_real'])}")
         entrega = None
@@ -70,11 +82,16 @@ with st.form("conformidad"):
             st.markdown(f"**{e['numero']}. {e['descripcion']}**")
             cumplido = st.checkbox("Cumplido", value=True, key=f"cumplido_{e['id']}")
             observacion = st.text_input("Observación (opcional)", key=f"observacion_{e['id']}")
-            archivos = st.file_uploader(
-                "Evidencia", type=["jpg", "jpeg", "png", "pdf"], accept_multiple_files=True,
+            archivos = list(st.file_uploader(
+                "Evidencia (archivo)" if movil else "Evidencia",
+                type=["jpg", "jpeg", "png", "pdf"], accept_multiple_files=True,
                 key=f"evidencia_{e['id']}",
-            )
-            items.append((e["id"], cumplido, observacion, archivos))
+            ) or [])
+            if movil:
+                foto = st.camera_input("O toma una foto", key=f"foto_{e['id']}")
+                if foto is not None:
+                    archivos.append(foto)
+            items.append((e["id"], e["numero"], cumplido, observacion, archivos))
 
     observaciones = st.text_area("Observaciones generales (opcional)")
     guardar = st.form_submit_button("Guardar conformidad", type="primary",
@@ -95,11 +112,12 @@ if guardar:
                         "cumplido": cumplido,
                         "observacion": observacion,
                         "evidencias": [
-                            {"nombre_archivo": a.name, "mime": a.type, "contenido": a.getvalue()}
-                            for a in archivos or []
+                            {"nombre_archivo": a.name or f"foto-entregable-{numero}.jpg",
+                             "mime": a.type or "image/jpeg", "contenido": a.getvalue()}
+                            for a in archivos
                         ],
                     }
-                    for entregable_id, cumplido, observacion, archivos in items
+                    for entregable_id, numero, cumplido, observacion, archivos in items
                 ],
             )
             n_alertas = len(repositorio.listar_alertas(s, actor, expediente_id=expediente_id))

@@ -105,6 +105,8 @@ class Conformidad(Base):
     observaciones: Mapped[str] = mapped_column(Text)
     penalidad_aplicada: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     codigo_sello: Mapped[str | None] = mapped_column(Text)
+    sello_bitacora_id: Mapped[int | None] = mapped_column(BigInteger)
+    sello_hash: Mapped[str | None] = mapped_column(CHAR(64))
     registrada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

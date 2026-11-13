@@ -3,13 +3,14 @@
 Toda función recibe el `actor` y aplica su alcance en la consulta. Las páginas
 no usan SQLAlchemy directamente.
 """
+import hashlib
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
-from conforme import bitacora, evidencias
+from conforme import bitacora, evidencias, sello
 from conforme import entregables as validacion_entregables
 from conforme.errores import ErrorValidacion
 from conforme.modelos import (
@@ -286,6 +287,7 @@ def obtener_conformidad(sesion: Session, actor: Actor, expediente_id: int) -> di
             Conformidad.id, Conformidad.conformante_id, _NOMBRE_PERSONA.label("conformante"),
             Conformidad.fecha_conformidad, Conformidad.observaciones,
             Conformidad.penalidad_aplicada, Conformidad.registrada_en,
+            Conformidad.codigo_sello, Conformidad.sello_hash, Conformidad.sello_bitacora_id,
         )
         .join(Persona, Persona.id == Conformidad.conformante_id)
         .where(Conformidad.expediente_id == expediente_id)
@@ -392,6 +394,7 @@ def registrar_conformidad(
                 "documento_sha256": archivo["sha256"],
             })
     bitacora.registrar_lote(sesion, eventos)
+    sellar_pendientes(sesion, [expediente.id])
     motor.sincronizar(sesion, [expediente.id])
     return conformidad.id
 
@@ -571,3 +574,130 @@ def escalar_alerta(sesion: Session, actor: Actor, alerta_id: int, motivo: str) -
     if alerta.estado in (ESTADO_CERRADA, ESTADO_ESCALADA):
         raise ErrorValidacion("La alerta ya está cerrada o escalada.")
     _revisar(sesion, actor, alerta, "escalamiento", motivo, ESTADO_ESCALADA)
+
+
+# --- F3: sello de conformidad ---------------------------------------------------
+
+_ACCIONES_SELLADAS = ("conformidad.registrada", "evidencia.adjuntada")
+
+
+def sellar_pendientes(sesion: Session, expediente_ids: list[int] | None = None) -> int:
+    """Da código de sello a las conformidades que no lo tienen.
+
+    El sello guarda el id y el hash del último registro de bitácora que cubre la
+    conformidad y sus evidencias. Debe llamarse DESPUÉS de registrar esos eventos.
+    """
+    consulta = select(Conformidad).where(Conformidad.codigo_sello.is_(None))
+    if expediente_ids is not None:
+        consulta = consulta.where(Conformidad.expediente_id.in_(expediente_ids))
+    pendientes = sesion.execute(consulta).scalars().all()
+    if not pendientes:
+        return 0
+    ultimo = dict(sesion.execute(
+        select(Bitacora.expediente_id, func.max(Bitacora.id))
+        .where(Bitacora.accion.in_(_ACCIONES_SELLADAS),
+               Bitacora.expediente_id.in_([c.expediente_id for c in pendientes]))
+        .group_by(Bitacora.expediente_id)
+    ).all())
+    hashes = dict(sesion.execute(
+        select(Bitacora.id, Bitacora.hash).where(Bitacora.id.in_(set(ultimo.values())))
+    ).all())
+    sellados = 0
+    for c in pendientes:
+        registro_id = ultimo.get(c.expediente_id)
+        if registro_id is None:
+            continue
+        c.sello_bitacora_id = registro_id
+        c.sello_hash = hashes[registro_id]
+        c.codigo_sello = sello.generar_codigo()
+        sellados += 1
+    sesion.flush()
+    return sellados
+
+
+def consultar_sello(sesion: Session, codigo: str | None) -> dict | None:
+    """Verificación PÚBLICA: no recibe actor, se accede solo con el código del sello.
+
+    Devuelve None si el código no existe (sin distinguir por qué). Expone solo lo
+    del expediente sellado; nunca DNI ni datos de otros expedientes.
+    """
+    if not sello.codigo_valido(codigo):
+        return None
+    fila = sesion.execute(
+        select(
+            Conformidad.id, Conformidad.expediente_id, Conformidad.fecha_conformidad,
+            Conformidad.penalidad_aplicada, Conformidad.observaciones,
+            Conformidad.sello_bitacora_id, Conformidad.sello_hash,
+            Conformidad.registrada_en,
+            Expediente.codigo.label("expediente"), Expediente.tipo, Expediente.descripcion,
+            Expediente.monto, Expediente.fecha_entrega_real,
+            Area.nombre.label("area"), Proveedor.razon_social.label("proveedor"),
+            _NOMBRE_PERSONA.label("conformante"), Persona.cargo.label("conformante_cargo"),
+        )
+        .join(Expediente, Expediente.id == Conformidad.expediente_id)
+        .join(Area, Area.id == Expediente.area_id)
+        .join(Proveedor, Proveedor.id == Expediente.proveedor_id)
+        .join(Persona, Persona.id == Conformidad.conformante_id)
+        .where(Conformidad.codigo_sello == codigo)
+    ).first()
+    if fila is None:
+        return None
+    datos = dict(fila._mapping)
+
+    # Huella que la bitácora guardó de cada documento al adjuntarlo.
+    huella_en_bitacora = dict(sesion.execute(
+        select(Bitacora.entidad_id, Bitacora.documento_sha256)
+        .where(Bitacora.expediente_id == datos["expediente_id"],
+               Bitacora.accion == "evidencia.adjuntada")
+    ).all())
+    problemas: list[str] = []
+    entregables: dict[int, dict] = {}
+    for f in sesion.execute(
+        select(
+            ConformidadEntregable.id.label("ce_id"), Entregable.numero, Entregable.descripcion,
+            ConformidadEntregable.cumplido, ConformidadEntregable.observacion,
+        )
+        .join(Entregable, Entregable.id == ConformidadEntregable.entregable_id)
+        .where(ConformidadEntregable.conformidad_id == datos["id"])
+        .order_by(Entregable.numero)
+    ):
+        entregables[f.ce_id] = {**dict(f._mapping), "evidencias": []}
+    if entregables:
+        for ev in sesion.execute(
+            select(Evidencia.id, Evidencia.conformidad_entregable_id, Evidencia.nombre_archivo,
+                   Evidencia.mime, Evidencia.sha256, Evidencia.contenido)
+            .where(Evidencia.conformidad_entregable_id.in_(entregables))
+            .order_by(Evidencia.id)
+        ):
+            contenido = bytes(ev.contenido)
+            coincide = (hashlib.sha256(contenido).hexdigest() == ev.sha256
+                        == huella_en_bitacora.get(ev.id))
+            if not coincide:
+                problemas.append(
+                    f"La evidencia «{ev.nombre_archivo}» no coincide con la huella registrada.")
+            entregables[ev.conformidad_entregable_id]["evidencias"].append({
+                "nombre_archivo": ev.nombre_archivo, "mime": ev.mime, "sha256": ev.sha256,
+                "coincide": coincide,
+                "miniatura": sello.miniatura(contenido) if ev.mime.startswith("image/") else None,
+            })
+
+    cadena = bitacora.verificar_cadena(sesion)
+    if not cadena.integra:
+        problemas.insert(
+            0, f"La bitácora está alterada desde el registro n.º {cadena.id_roto}. "
+               f"{cadena.motivo}")
+    registro = sesion.get(Bitacora, datos["sello_bitacora_id"])
+    if registro is None or registro.hash != datos["sello_hash"]:
+        problemas.append(
+            f"El registro n.º {datos['sello_bitacora_id']}, que este sello cubre, "
+            "falta o cambió desde que se selló.")
+
+    for clave in ("id", "expediente_id", "sello_bitacora_id"):
+        datos.pop(clave)
+    return {
+        **datos,
+        "entregables": list(entregables.values()),
+        "integra": not problemas,
+        "problemas": problemas,
+        "registros_verificados": cadena.total,
+    }

@@ -1,12 +1,12 @@
 # Plan — MVP "Conforme" (hackathon, entrega 25 nov 2026)
 
-## Estado (actualizado al cerrar F2, 13 nov 2026)
+## Estado (actualizado al cerrar F3, 13 nov 2026)
 
 | Fase | Estado |
 |---|---|
 | F1 Núcleo | Hecha y verificada contra Neon (ramas dev, test y demo). Desplegada en https://conforme-gyc3rgxs6tbygkrtgurhbn.streamlit.app/ (rama `demo`) |
 | F2 Conformidad | Hecha. Pruebas automáticas y flujo completo en el navegador con los tres roles, contra Neon |
-| F3 Sello | Pendiente |
+| F3 Sello | Hecha salvo la prueba de cámara en un celular real y el redespliegue (ver abajo) |
 | F4 Lectura con IA | Pendiente (opcional) |
 
 ### F1 — qué se ejecutó de verdad
@@ -38,6 +38,20 @@
 - [x] Navegador: "Mostrar evidencias" carga las miniaturas del caso estrella.
 - [ ] No probado en el navegador: descargar una evidencia en PDF (solo se vieron imágenes) y la cámara del celular (es de F3).
 - Tras las pruebas manuales se volvió a sembrar: la base de Neon quedó con los datos limpios de la semilla.
+
+### F3 — qué se ejecutó de verdad
+- [x] `003_sello.sql`: `conformidad.sello_bitacora_id` y `sello_hash` (con `codigo_sello`, los tres a la vez o ninguno). El sello guarda el id y el hash del último registro de bitácora que cubre la conformidad y sus evidencias; así, borrar la cola de la bitácora (que la cadena sola no ve) deja el sello inválido.
+- [x] `conforme/sello.py` (código de 96 bits, URL, QR, PNG del sello, miniaturas) y en `repositorio.py` `sellar_pendientes` (la usan `registrar_conformidad` y `sembrar`) y `consultar_sello` (pública, sin `actor`, solo por código).
+- [x] `paginas/verificar.py` pública: expediente, conformante (sin DNI), entregables, miniaturas, estado "Íntegra / Alterada" con el motivo y el n.º de registro. Verifica la cadena completa, el registro sellado y la huella de cada evidencia (contenido vs. columna vs. bitácora). Un código inexistente o mal formado solo dice "no se encontró".
+- [x] Detalle del expediente: expander "Sello de conformidad (QR)" con código, hash, enlace y botón "Descargar sello (PNG)".
+- [x] `conformidad.py`: interruptor "Vista móvil" (una columna, botones grandes, `st.camera_input` por entregable; el `file_uploader` sigue siempre visible).
+- [x] `scripts/alterar_demo.py` (`--restaurar` para volver; guarda el original en `.alterar_demo.json`, ignorado por git).
+- [x] `pytest`: 132 pruebas pasan contra la rama `test` de Neon (~5 min). `tests/test_sello.py` cubre unicidad y forma del código, QR (decodificado con OpenCV, 40 códigos × 2 imágenes), código inválido, que la consulta no expone DNI ni otros expedientes, alteración de un registro, borrado de la cola, alteración del archivo de una evidencia y una conformidad nueva.
+- [x] Local contra Neon `dev` (navegador): `/verificar?c=<código>` sin sesión → "Íntegra, 2174 registros"; tras `alterar_demo` → "Alterada… desde el registro n.º 2029"; tras `--restaurar` → "Íntegra"; código inexistente → "No se encontró…". Como `inf1`: el QR y el sello aparecen en `EXP-2026-0300`; guardar una conformidad desde la interfaz la deja sellada.
+- [ ] No verificado: cámara y escaneo del QR con un celular real contra la app desplegada (el navegador del entorno bloquea la cámara; el QR se probó decodificándolo por código). Anotar el resultado aquí cuando se pruebe.
+- [ ] Pendiente de ti: redesplegar (push a `main`) y volver a sembrar la rama `demo` con `DATABASE_URL` = `DATABASE_URL_DEMO` (`migrar` + `sembrar --reiniciar`), porque las conformidades sembradas antes de F3 no tienen sello. En los secretos, `BASE_URL` debe ser la URL pública para que el QR apunte bien.
+- Decisión: el hash de la bitácora no incluye el código del sello, así que la siembra sigue siendo determinista en la bitácora; los códigos son aleatorios en cada siembra.
+- Dependencias: `qrcode` en `requirements.txt`; `opencv-python-headless` solo en `requirements-dev.txt` (la prueba del QR se omite si no está).
 
 ### Decisiones tomadas en F2
 - **R3 = conformidad tardía** (decidido contigo): alerta si la conformidad se emite más de `CONFORMIDAD_PLAZO_MAXIMO_DIAS` después de la entrega real.
@@ -72,7 +86,7 @@
 - `conformidad.codigo_sello` ya existe (TEXT UNIQUE, NULL): F3 lo llena. Añadir `qrcode` a `requirements.txt`.
 - Las evidencias sembradas son PNG de 16×12 de un solo color (sirven para las miniaturas de `verificar`).
 - Expedientes de INF sin conformidad para la demo en vivo: `EXP-2026-0016`, `-0066`, `-0232`, `-0295`.
-- Pendiente menor de F1: probar el login de los tres roles en el enlace público; `BASE_URL` en los secretos debe ser la URL real.
+- Login de los tres roles en el enlace público: comprobado por el usuario (13 nov 2026). `BASE_URL` en los secretos debe ser la URL real.
 
 ---
 

@@ -2,7 +2,7 @@ from datetime import date
 
 import streamlit as st
 
-from conforme import db, normativa, repositorio
+from conforme import db, normativa, repositorio, sello
 from conforme.errores import ErrorValidacion
 from conforme.interfaz import (
     AVISO_NO_BLOQUEA, ETIQUETAS_ACCION, ETIQUETAS_ESTADO, ETIQUETAS_SEMAFORO,
@@ -100,6 +100,24 @@ if conformidad:
     )
     if conformidad["observaciones"]:
         st.caption(f"Observaciones: {conformidad['observaciones']}")
+    if conformidad["codigo_sello"]:
+        url_sello = sello.url_verificacion(conformidad["codigo_sello"])
+        with st.expander("Sello de conformidad (QR)", icon=":material/qr_code_2:"):
+            columna_qr, columna_datos = st.columns([1, 2])
+            columna_qr.image(sello.png_qr(conformidad["codigo_sello"]), width=180)
+            columna_datos.markdown(
+                f"**Código:** `{conformidad['codigo_sello']}`  \n"
+                f"**Registro de bitácora sellado:** n.º {conformidad['sello_bitacora_id']}  \n"
+                f"**Hash:** `{conformidad['sello_hash'][:24]}…`  \n"
+                f"**Verificación pública:** [{url_sello}]({url_sello})"
+            )
+            columna_datos.download_button(
+                "Descargar sello (PNG)",
+                sello.png_sello(conformidad["codigo_sello"], exp["codigo"],
+                                conformidad["sello_hash"]),
+                file_name=f"sello-{exp['codigo']}.png", mime="image/png",
+                icon=":material/download:",
+            )
 elif not entregables:
     st.info("Este expediente no tiene entregables cargados.")
 else:

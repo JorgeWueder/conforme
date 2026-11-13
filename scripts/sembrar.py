@@ -9,7 +9,7 @@ from datetime import timedelta
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from conforme import auth, bitacora, config, db
+from conforme import auth, bitacora, config, db, repositorio
 from conforme.modelos import (
     Area, Conformidad, ConformidadEntregable, Entregable, Evidencia, Expediente, Pago,
     Persona, Proveedor, Usuario,
@@ -172,11 +172,12 @@ def sembrar(sesion: Session, conjunto: dict, password: str) -> dict:
     eventos.extend(eventos_alerta)
     eventos.sort(key=lambda e: e["ts"])  # orden estable: a igual momento, el de llegada
     bitacora.registrar_lote(sesion, eventos)
+    sellados = repositorio.sellar_pendientes(sesion)
 
     return {
         "areas": len(areas), "personas": len(personas), "proveedores": len(proveedores),
         "expedientes": len(expedientes), "entregables": len(entregables),
-        "conformidades": len(conjunto["conformidades"]), "evidencias": len(evidencias),
+        "conformidades": len(conjunto["conformidades"]), "sellos": sellados, "evidencias": len(evidencias),
         "pagos": len(conjunto["pagos"]), "anomalias": len(conjunto["anomalias"]),
         "alertas": len(eventos_alerta), "bitacora": len(eventos),
     }

@@ -1,0 +1,2 @@
+# Solo pruebas locales (decodifica el QR en test_sello.py)
+opencv-python-headless>=4.9
