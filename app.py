@@ -2,7 +2,7 @@
 import streamlit as st
 
 from conforme.interfaz import ETIQUETAS_ROL
-from conforme.modelos import ROL_AUDITOR
+from conforme.modelos import ROL_AREA_USUARIA, ROL_AUDITOR
 
 st.set_page_config(page_title="Conforme", page_icon=":material/verified:", layout="wide")
 
@@ -36,6 +36,15 @@ else:
         st.Page("paginas/expediente_detalle.py", title="Detalle de expediente",
                 icon=":material/description:"),
     ]
+    if actor.rol == ROL_AREA_USUARIA:
+        paginas += [
+            st.Page("paginas/nuevo_expediente.py", title="Nuevo expediente",
+                    icon=":material/note_add:"),
+            st.Page("paginas/conformidad.py", title="Registrar conformidad",
+                    icon=":material/task_alt:"),
+        ]
+    paginas.append(st.Page("paginas/alertas.py", title="Alertas",
+                           icon=":material/notification_important:"))
     if actor.rol == ROL_AUDITOR:
         paginas.append(st.Page("paginas/bitacora.py", title="Bitácora",
                                icon=":material/link:"))

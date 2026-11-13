@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import text
 
 from conforme import auth, repositorio
 from conforme.permisos import PermisoDenegado
@@ -48,8 +49,12 @@ def test_linea_de_tiempo_de_expediente_propio(sesion_sembrada):
     inf = _actor(sesion_sembrada, "inf1")
     propio = repositorio.listar_expedientes(sesion_sembrada, inf, texto="EXP-2026-0300")[0]
     eventos = repositorio.linea_de_tiempo(sesion_sembrada, inf, propio["id"])
-    assert [e["accion"] for e in eventos] == ["expediente.registrado", "orden.emitida"]
+    acciones = [e["accion"] for e in eventos]
+    assert acciones[:3] == ["expediente.registrado", "orden.emitida", "conformidad.registrada"]
+    assert acciones.count("evidencia.adjuntada") >= 2
+    assert acciones[-3:] == ["alerta.generada"] * 3
     assert eventos[0]["actor"] and eventos[1]["documento_sha256"]
+    assert eventos[-1]["actor"] is None  # las alertas las genera el sistema
 
 
 @pytest.mark.parametrize("username", ["inf1", "tes1"])
@@ -65,5 +70,6 @@ def test_auditor_verifica_la_cadena_sembrada(sesion_sembrada):
     auditor = _actor(sesion_sembrada, "oci1")
     resultado = repositorio.verificar_integridad(sesion_sembrada, auditor)
     assert resultado.integra
-    assert resultado.total == 600
+    assert resultado.total == sesion_sembrada.execute(
+        text("SELECT count(*) FROM bitacora")).scalar_one() > 2000
     assert len(repositorio.listar_bitacora(sesion_sembrada, auditor, limite=50)) == 50

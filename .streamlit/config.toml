@@ -3,3 +3,7 @@ toolbarMode = "minimal"
 
 [browser]
 gatherUsageStats = false
+
+[server]
+# Tope de subida por archivo, en MB: igual al máximo de una evidencia.
+maxUploadSize = 5

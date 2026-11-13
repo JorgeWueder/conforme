@@ -4,23 +4,31 @@ Uso:  python -m scripts.sembrar              (solo sobre una base vacía)
       python -m scripts.sembrar --reiniciar  (BORRA todos los datos y vuelve a cargar)
 """
 import sys
+from datetime import timedelta
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from conforme import auth, bitacora, config, db
-from conforme.modelos import Area, Expediente, Persona, Proveedor, Usuario
+from conforme.modelos import (
+    Area, Conformidad, ConformidadEntregable, Entregable, Evidencia, Expediente, Pago,
+    Persona, Proveedor, Usuario,
+)
+from conforme.reglas import motor
 from datos import generador
 
-_TABLAS = "anomalia_sembrada, bitacora, expediente, usuario, persona, proveedor, area"
+_TABLAS = ("anomalia_sembrada, alerta_revision, alerta, pago, evidencia, "
+           "conformidad_entregable, conformidad, entregable, bitacora, expediente, "
+           "usuario, persona, proveedor, area")
 
 
 def vaciar(sesion: Session) -> None:
     sesion.execute(text(f"TRUNCATE {_TABLAS} RESTART IDENTITY CASCADE"))
 
 
-def sembrar(sesion: Session, conjunto: dict, password: str) -> None:
-    """Inserta el conjunto generado y encadena su historia en la bitácora."""
+def sembrar(sesion: Session, conjunto: dict, password: str) -> dict:
+    """Inserta el conjunto generado, pasa el motor de reglas y encadena toda la
+    historia en la bitácora. Devuelve los conteos de lo insertado."""
     areas = {a["sigla"]: Area(**a) for a in conjunto["areas"]}
     sesion.add_all(areas.values())
     sesion.flush()
@@ -66,19 +74,112 @@ def sembrar(sesion: Session, conjunto: dict, password: str) -> None:
     sesion.add_all(expedientes.values())
     sesion.flush()
 
-    bitacora.registrar_lote(sesion, [
+    # --- F2: entregables, conformidades con evidencias y pagos -----------------
+    # `refs` resuelve la entidad de cada evento de bitácora del generador.
+    refs = {}
+    entregables = {
+        (e["expediente_codigo"], e["numero"]): Entregable(
+            expediente_id=expedientes[e["expediente_codigo"]].id, numero=e["numero"],
+            descripcion=e["descripcion"], origen=e["origen"])
+        for e in conjunto["entregables"]
+    }
+    sesion.add_all(entregables.values())
+
+    for c in conjunto["conformidades"]:
+        refs["conformidad", c["expediente_codigo"]] = Conformidad(
+            expediente_id=expedientes[c["expediente_codigo"]].id,
+            conformante_id=personas[c["conformante_dni"]].id,
+            fecha_conformidad=c["fecha_conformidad"], observaciones=c["observaciones"],
+            penalidad_aplicada=c["penalidad_aplicada"], registrada_en=c["registrada_en"],
+        )
+    for p in conjunto["pagos"]:
+        refs["pago", p["expediente_codigo"]] = Pago(
+            expediente_id=expedientes[p["expediente_codigo"]].id, fecha_pago=p["fecha_pago"],
+            monto=p["monto"], penalidad_descontada=p["penalidad_descontada"],
+            registrado_por=personas[p["registrado_por_dni"]].id,
+            registrado_en=p["registrado_en"],
+        )
+    sesion.add_all(refs.values())
+    sesion.flush()
+
+    items = {}
+    for c in conjunto["conformidades"]:
+        codigo = c["expediente_codigo"]
+        for item in c["items"]:
+            items[codigo, item["numero"]] = ConformidadEntregable(
+                conformidad_id=refs["conformidad", codigo].id,
+                entregable_id=entregables[codigo, item["numero"]].id,
+                cumplido=item["cumplido"], observacion=item["observacion"],
+            )
+    sesion.add_all(items.values())
+    sesion.flush()
+
+    evidencias = {}
+    for c in conjunto["conformidades"]:
+        codigo = c["expediente_codigo"]
+        for item in c["items"]:
+            for indice, archivo in enumerate(item["evidencias"]):
+                evidencias["evidencia", codigo, item["numero"], indice] = Evidencia(
+                    conformidad_entregable_id=items[codigo, item["numero"]].id,
+                    subido_por=personas[c["conformante_dni"]].id,
+                    subido_en=c["registrada_en"], **archivo,
+                )
+    sesion.add_all(evidencias.values())
+    sesion.flush()
+    refs.update(evidencias)
+
+    if conjunto["anomalias"]:
+        sesion.execute(
+            text("INSERT INTO anomalia_sembrada (expediente_id, regla, nota) "
+                 "VALUES (:expediente_id, :regla, :nota)"),
+            [{"expediente_id": expedientes[a["expediente_codigo"]].id,
+              "regla": a["regla"], "nota": a["nota"]} for a in conjunto["anomalias"]],
+        )
+
+    eventos = [
         {
             "ts": e["ts"],
             "actor_id": personas[e["actor_dni"]].id,
             "accion": e["accion"],
             "entidad": e["entidad"],
-            "entidad_id": expedientes[e["expediente_codigo"]].id,
+            "entidad_id": (refs[e["ref"]].id if e.get("ref")
+                           else expedientes[e["expediente_codigo"]].id),
             "expediente_id": expedientes[e["expediente_codigo"]].id,
             "detalle": e["detalle"],
             "documento_sha256": e["documento_sha256"],
         }
         for e in conjunto["eventos"]
-    ])
+    ]
+
+    # El motor genera las alertas igual que en la aplicación. No conoce las
+    # anomalías sembradas: solo ve expedientes, conformidades y pagos.
+    # Cada alerta se fecha un segundo después del hecho que la origina.
+    segundo = timedelta(seconds=1)
+    ts_conformidad = {refs["conformidad", c["expediente_codigo"]].expediente_id: c["registrada_en"]
+                      for c in conjunto["conformidades"]}
+    ts_pago = {refs["pago", p["expediente_codigo"]].id: p["registrado_en"]
+               for p in conjunto["pagos"]}
+
+    def ts_de(foto, propuesta):
+        if propuesta.regla == "R5":
+            antes = ts_pago[propuesta.datos["pago_id"]]
+            if foto.expediente_id in ts_conformidad:
+                antes = max(antes, ts_conformidad[foto.expediente_id])
+            return antes + segundo
+        return ts_conformidad[foto.expediente_id] + segundo
+
+    eventos_alerta = motor.sincronizar(sesion, ts_de=ts_de, registrar=False)
+    eventos.extend(eventos_alerta)
+    eventos.sort(key=lambda e: e["ts"])  # orden estable: a igual momento, el de llegada
+    bitacora.registrar_lote(sesion, eventos)
+
+    return {
+        "areas": len(areas), "personas": len(personas), "proveedores": len(proveedores),
+        "expedientes": len(expedientes), "entregables": len(entregables),
+        "conformidades": len(conjunto["conformidades"]), "evidencias": len(evidencias),
+        "pagos": len(conjunto["pagos"]), "anomalias": len(conjunto["anomalias"]),
+        "alertas": len(eventos_alerta), "bitacora": len(eventos),
+    }
 
 
 if __name__ == "__main__":
@@ -91,11 +192,6 @@ if __name__ == "__main__":
             vaciar(s)
         elif s.execute(select(func.count()).select_from(Area)).scalar_one() > 0:
             sys.exit("La base ya tiene datos. Usa --reiniciar para borrarlos y recargar.")
-        conjunto = generador.generar()
-        sembrar(s, conjunto, password)
-    print(
-        f"Sembrado: {len(conjunto['areas'])} áreas, {len(conjunto['personas'])} personas, "
-        f"{len(conjunto['proveedores'])} proveedores, {len(conjunto['expedientes'])} expedientes, "
-        f"{len(conjunto['eventos'])} registros de bitácora."
-    )
+        conteos = sembrar(s, generador.generar(), password)
+    print("Sembrado: " + ", ".join(f"{n} {nombre}" for nombre, n in conteos.items()) + ".")
     print("Usuarios de demostración: inf1 (área usuaria), tes1 (tesorería), oci1 (auditor).")

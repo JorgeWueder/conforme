@@ -11,6 +11,7 @@ Python 3.11, Streamlit multipágina (`st.navigation`), PostgreSQL con SQLAlchemy
 ```
 .\.venv\Scripts\python.exe -m scripts.migrar
 .\.venv\Scripts\python.exe -m scripts.sembrar            # --reiniciar borra y recarga
+.\.venv\Scripts\python.exe -m scripts.medir_deteccion    # alertas vs. anomalías sembradas
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
@@ -20,6 +21,7 @@ Configuración en `.env` (ver `.env.example`). `DATABASE_URL_TEST` debe ser una 
 - `app.py`: navegación por rol y banner "Datos sintéticos". Páginas en `paginas/`.
 - `conforme/repositorio.py`: **única** puerta a los datos. Toda función recibe `actor` y aplica `conforme/permisos.py` en la consulta. Las páginas no usan SQLAlchemy.
 - `conforme/bitacora.py`: bitácora encadenada por hash (`registrar`, `registrar_lote`, `verificar_cadena`). La línea de tiempo de un expediente es la bitácora filtrada.
+- `conforme/reglas/`: una función pura por regla (R1–R5), `motor.py` (evalúa y sincroniza la tabla `alerta`, idempotente) y `semaforo.py`. Parámetros normativos en `conforme/normativa.py`.
 - `datos/generador.py`: datos con semilla fija, sin tocar la base. `scripts/sembrar.py` los inserta.
 - `datos/caso_estrella.py`: caso de demo `EXP-2026-0300`.
 - `migraciones/NNN_*.sql`: el esquema real. `conforme/modelos.py` lo refleja.

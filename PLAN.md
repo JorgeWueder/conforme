@@ -1,11 +1,11 @@
 # Plan — MVP "Conforme" (hackathon, entrega 25 nov 2026)
 
-## Estado (actualizado al cerrar F1, 13 nov 2026)
+## Estado (actualizado al cerrar F2, 13 nov 2026)
 
 | Fase | Estado |
 |---|---|
 | F1 Núcleo | Hecha y verificada en local. **Pendiente: desplegar** (necesita Neon, GitHub y Streamlit Cloud) |
-| F2 Conformidad | Pendiente |
+| F2 Conformidad | Hecha y verificada en local y contra Neon (ver abajo lo que NO se probó en el navegador) |
 | F3 Sello | Pendiente |
 | F4 Lectura con IA | Pendiente (opcional) |
 
@@ -22,6 +22,32 @@
 - [ ] **`pytest` NO se ha corrido contra Neon**: solo hay una base en Neon y las pruebas borran el esquema. Siguen corriendo contra el Postgres 16 desechable en Docker (`conforme-pruebas`, puerto 55432). Falta crear las ramas `test` y `demo` y poner `DATABASE_URL_TEST`.
 - Nota: la app usa `DATABASE_URL` (conexión directa). `.env` también trae `DATABASE_URL_POOLED`; para el despliegue conviene usar esa como `DATABASE_URL` en los secretos de Streamlit.
 
+### F2 — qué se ejecutó de verdad
+- [x] `pytest`: 113 pruebas pasan (Postgres 16 desechable en Docker). Incluye un archivo por regla, motor, semáforo, flujo de alertas, permisos, aislamiento y siembra reproducible.
+- [x] Neon: `migrar` aplicó `002_conformidad.sql`; `sembrar --reiniciar` tarda ~22 s y deja 300 expedientes, 901 entregables, 246 conformidades, 1093 evidencias, 207 pagos, 28 alertas y 2174 registros de bitácora.
+- [x] `medir_deteccion` contra Neon: cobertura 28/28, precisión 28/28, 0 falsos positivos (R1 6, R2 6, R3 5, R4 6, R5 5; incluye las 3 del caso estrella y 5 casos trampa de atraso con penalidad completa que no alertan).
+- [x] Navegador, caso estrella `EXP-2026-0300`: rojo con exactamente R1, R2 y R4; R2 dice "12 días de atraso × S/ 266.67 por día = S/ 3,200.00 esperados (tope S/ 4,800.00); aplicado S/ 0.00".
+- [x] Navegador, `inf1`: registró la conformidad de `EXP-2026-0295` adjuntando una imagen a un entregable y dejando dos sin evidencia → se guardó, aparecieron R1 y R3, semáforo rojo y todo quedó en la línea de tiempo. Presentó descargo en la R2 del caso estrella. No ve formulario de cierre.
+- [x] Navegador, `tes1`: no tiene "Nuevo expediente" ni "Registrar conformidad"; cerrar sin motivo → "El motivo es obligatorio."; cerró con motivo y quedó en el historial.
+- [x] Navegador: la página "Nuevo expediente" carga y valida ("Elige un proveedor.").
+- [ ] **NO probado en el navegador** (sí cubierto por pruebas del repositorio): registrar un pago, escalar una alerta, el aviso al implicado que intenta cerrar, crear un expediente completo (a mano y por CSV), ver/descargar evidencias con el interruptor "Mostrar evidencias", y la vista del auditor sobre alertas.
+- Tras las pruebas manuales se volvió a sembrar: la base de Neon quedó con los datos limpios de la semilla.
+- Nota: había un `streamlit run app.py` antiguo ocupando el puerto 8501 con código de F1 en memoria (falla al importar). Hay que cerrarlo a mano antes de volver a usar ese puerto.
+
+### Decisiones tomadas en F2
+- **R3 = conformidad tardía** (decidido contigo): alerta si la conformidad se emite más de `CONFORMIDAD_PLAZO_MAXIMO_DIAS` después de la entrega real.
+- R1 da **una** alerta por expediente que lista los entregables cumplidos sin evidencia. Un entregable marcado "no cumplido" no exige evidencia.
+- R5 da una alerta por pago; la persona implicada es quien registró el pago (por eso ese tesorero no puede cerrarla).
+- Persona implicada en R1–R4: quien dio la conformidad.
+- "Reevaluar" lo pueden usar área usuaria y tesorería; el auditor no escribe nada salvo revisiones de alertas.
+- Una alerta ya creada no se borra si su condición desaparece; la cierra una persona con motivo. Una alerta cerrada no se reabre.
+- Una alerta escalada puede cerrarse después; sigue contando para el semáforo hasta entonces.
+- La conformidad pide la fecha de entrega real solo si el expediente no la tiene, y no acepta fecha de conformidad anterior a la entrega.
+- El modelo `AnomaliaSembrada` salió de `conforme/modelos.py`: la siembra y `medir_deteccion` usan SQL directo. Una prueba verifica que `conforme/`, `paginas/` y `app.py` no mencionan esa tabla.
+- Las alertas de los datos sembrados las genera el mismo motor que usa la aplicación (no se insertan a mano).
+- `server.maxUploadSize = 5` en `.streamlit/config.toml`, igual al tope de una evidencia.
+- Se añadió `Pillow` a `requirements.txt` (reducción de fotos). `qrcode` queda para F3.
+
 ### Cambios respecto al plan original
 - Los scripts se ejecutan como módulos: `python -m scripts.migrar`, `python -m scripts.sembrar [--reiniciar]`.
 - Contraseñas con PBKDF2 de la biblioteca estándar (sin dependencia extra).
@@ -32,11 +58,16 @@
 ### Supuestos por confirmar (parámetros, no inventados)
 - Prefijo sintético de DNI = `99` (`datos/generador.py`). Para RUC, `99` no existe como prefijo real; para DNI no lo pude verificar.
 - Fecha límite = fecha de la orden + plazo en días calendario. POR VERIFICAR con el Reglamento.
+- Penalidad diaria = 0.10 × monto / (F × plazo), F = 0.40 hasta 60 días y 0.25 para más; tope 10 % del monto; tolerancia S/ 0.01. Constantes en `conforme/normativa.py`. POR VERIFICAR con el Reglamento.
+- Plazo máximo entre entrega y conformidad (R3) = 7 días calendario para todo tipo de bien o servicio. POR VERIFICAR con el Reglamento (puede variar según el tipo de prestación).
 - Límite conocido de la bitácora: una cadena no detecta el borrado de los últimos registros; el sello de F3 guardará el hash vigente para cubrirlo.
 
-### Para empezar F2
-- Usuarios de demo: `inf1` (área usuaria, solicitante del caso estrella), `tes1`, `oci1`. Contraseña en `DEMO_PASSWORD` del `.env`.
-- Añadir `qrcode` y `Pillow` a `requirements.txt` cuando se usen (F2/F3).
+### Para empezar F3
+- Usuarios de demo: `inf1` (área usuaria, solicitante y conformante del caso estrella), `tes1`, `oci1`. Contraseña en `DEMO_PASSWORD` del `.env`.
+- `conformidad.codigo_sello` ya existe (TEXT UNIQUE, NULL): F3 lo llena. Añadir `qrcode` a `requirements.txt`.
+- Las evidencias sembradas son PNG de 16×12 de un solo color (sirven para las miniaturas de `verificar`).
+- Expedientes de INF sin conformidad para la demo en vivo: `EXP-2026-0016`, `-0066`, `-0232`, `-0295`.
+- Sigue pendiente de F1: desplegar y crear las ramas `test` y `demo` en Neon.
 
 ---
 

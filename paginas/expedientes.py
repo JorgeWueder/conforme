@@ -1,21 +1,34 @@
 import streamlit as st
 
 from conforme import db, repositorio
-from conforme.interfaz import actor_actual
+from conforme.interfaz import ETIQUETAS_SEMAFORO, actor_actual, mostrar_aviso_pendiente
 
 actor = actor_actual()
 
 st.title("Expedientes")
-texto = st.text_input("Buscar por código, descripción o proveedor")
+mostrar_aviso_pendiente()
+
+izquierda, derecha = st.columns([2, 1])
+texto = izquierda.text_input("Buscar por código, descripción o proveedor")
+colores = derecha.multiselect(
+    "Semáforo", list(ETIQUETAS_SEMAFORO), format_func=ETIQUETAS_SEMAFORO.get,
+    placeholder="Todos",
+)
 
 with db.sesion() as s:
     filas = repositorio.listar_expedientes(s, actor, texto=texto)
+if colores:
+    filas = [f for f in filas if f["semaforo"] in colores]
 
 alcance = "de tu área" if actor.rol == "area_usuaria" else "de toda la entidad"
-st.caption(f"{len(filas)} expedientes {alcance}. Selecciona una fila para ver su detalle.")
+st.caption(
+    f"{len(filas)} expedientes {alcance}. Selecciona una fila para ver su detalle. "
+    "Semáforo: rojo = alguna alerta alta sin cerrar; ámbar = solo medias; verde = ninguna."
+)
 
 tabla = [
     {
+        "Semáforo": ETIQUETAS_SEMAFORO[f["semaforo"]],
         "Código": f["codigo"],
         "Área": f["area_sigla"],
         "Tipo": f["tipo"].capitalize(),
@@ -24,6 +37,8 @@ tabla = [
         "Orden": f["fecha_orden"],
         "Plazo (días)": f["plazo_dias"],
         "Monto (S/)": float(f["monto"]),
+        "Conformidad": "Registrada" if f["tiene_conformidad"] else "Pendiente",
+        "Alertas sin cerrar": f["alertas_altas"] + f["alertas_medias"],
     }
     for f in filas
 ]

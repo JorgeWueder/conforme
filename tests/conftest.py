@@ -58,3 +58,12 @@ def sesion_sembrada(engine, base_sembrada):
     with Session(engine) as s:
         yield s
         s.rollback()
+
+
+def actor_de(sesion, username):
+    """Actor autenticado con la contraseña de prueba."""
+    from conforme import auth
+
+    actor = auth.autenticar(sesion, username, PASSWORD_PRUEBA)
+    assert actor is not None, username
+    return actor
