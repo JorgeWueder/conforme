@@ -5,7 +5,7 @@
 | Fase | Estado |
 |---|---|
 | F1 Núcleo | Hecha y verificada en local. **Pendiente: desplegar** (necesita Neon, GitHub y Streamlit Cloud) |
-| F2 Conformidad | Hecha y verificada en local y contra Neon (ver abajo lo que NO se probó en el navegador) |
+| F2 Conformidad | Hecha. Pruebas automáticas y flujo completo en el navegador con los tres roles, contra Neon |
 | F3 Sello | Pendiente |
 | F4 Lectura con IA | Pendiente (opcional) |
 
@@ -30,9 +30,12 @@
 - [x] Navegador, `inf1`: registró la conformidad de `EXP-2026-0295` adjuntando una imagen a un entregable y dejando dos sin evidencia → se guardó, aparecieron R1 y R3, semáforo rojo y todo quedó en la línea de tiempo. Presentó descargo en la R2 del caso estrella. No ve formulario de cierre.
 - [x] Navegador, `tes1`: no tiene "Nuevo expediente" ni "Registrar conformidad"; cerrar sin motivo → "El motivo es obligatorio."; cerró con motivo y quedó en el historial.
 - [x] Navegador: la página "Nuevo expediente" carga y valida ("Elige un proveedor.").
-- [ ] **NO probado en el navegador** (sí cubierto por pruebas del repositorio): registrar un pago, escalar una alerta, el aviso al implicado que intenta cerrar, crear un expediente completo (a mano y por CSV), ver/descargar evidencias con el interruptor "Mostrar evidencias", y la vista del auditor sobre alertas.
+- [x] Navegador, `tes1`: registró un pago en `EXP-2026-0016` (sin conformidad; el formulario lo avisa y no bloquea) → R5 en rojo con tes1 como persona implicada. En la bandeja ve "Figuras como persona implicada…" y no tiene formulario de cierre; sí puede presentar descargo.
+- [x] Navegador, `oci1`: ve Bitácora y las alertas de toda la entidad; escaló esa R5 con motivo (queda en el historial y la línea de tiempo; después solo ofrece "Cerrar"). En el detalle no tiene "Registrar pago" ni "Reevaluar": "Auditoría: solo lectura."
+- [x] Navegador, `inf1`: creó `EXP-2026-0301` con entregables por CSV (un CSV con encabezado incorrecto muestra el error y deshabilita el registro) y `EXP-2026-0302` con la tabla a mano; ambos quedan en verde con sus entregables y su registro en la línea de tiempo.
+- [x] Navegador: "Mostrar evidencias" carga las miniaturas del caso estrella.
+- [ ] No probado en el navegador: descargar una evidencia en PDF (solo se vieron imágenes) y la cámara del celular (es de F3).
 - Tras las pruebas manuales se volvió a sembrar: la base de Neon quedó con los datos limpios de la semilla.
-- Nota: había un `streamlit run app.py` antiguo ocupando el puerto 8501 con código de F1 en memoria (falla al importar). Hay que cerrarlo a mano antes de volver a usar ese puerto.
 
 ### Decisiones tomadas en F2
 - **R3 = conformidad tardía** (decidido contigo): alerta si la conformidad se emite más de `CONFORMIDAD_PLAZO_MAXIMO_DIAS` después de la entrega real.
