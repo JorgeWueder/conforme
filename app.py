@@ -21,6 +21,7 @@ def cerrar_sesion():
 
 
 # Pública: se registra también para visitantes sin sesión (la abre el QR en F3).
+# Sin sesión no se muestra en la barra lateral: se llega por el QR o por el enlace del login.
 verificar = st.Page("paginas/verificar.py", title="Verificar sello",
                     url_path="verificar", icon=":material/qr_code_2:")
 
@@ -55,4 +56,4 @@ else:
     st.sidebar.markdown(f"**{actor.nombre}**")
     st.sidebar.caption(f"{ETIQUETAS_ROL[actor.rol]} · usuario `{actor.username}`")
 
-st.navigation(paginas).run()
+st.navigation(paginas, position="sidebar" if actor else "hidden").run()

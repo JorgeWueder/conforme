@@ -1,4 +1,4 @@
-streamlit>=1.40
+streamlit>=1.55
 SQLAlchemy>=2.0
 psycopg[binary]>=3.2
 python-dotenv>=1.0

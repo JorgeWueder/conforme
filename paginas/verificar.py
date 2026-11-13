@@ -4,6 +4,11 @@ import streamlit as st
 from conforme import db, repositorio, sello
 from conforme.interfaz import fecha, soles
 
+con_sesion = st.session_state.get("actor") is not None
+
+if not con_sesion:
+    st.page_link("paginas/login.py", label="Ir a iniciar sesión", icon=":material/arrow_back:")
+
 st.title("Verificar sello")
 st.caption(
     "Comprueba que una conformidad existe y que su rastro (bitácora y evidencias) "
@@ -11,17 +16,29 @@ st.caption(
 )
 
 codigo = (st.query_params.get("c") or "").strip()
-if not codigo:
-    codigo = st.text_input("Código del sello", placeholder="Pégalo o escanea el QR").strip()
+with st.form("buscar_sello", border=False):
+    columna_texto, columna_boton = st.columns([4, 1], vertical_alignment="bottom")
+    ingresado = columna_texto.text_input(
+        "Código del sello", value=codigo, placeholder="Pégalo o escanea el QR")
+    consultar = columna_boton.form_submit_button("Verificar", type="primary", width="stretch")
+if consultar:
+    codigo = ingresado.strip()
+    if codigo:
+        st.query_params["c"] = codigo
+    elif "c" in st.query_params:
+        del st.query_params["c"]
 
 if not codigo:
+    st.info("Escanea el QR del sello o pega aquí su código.", icon=":material/qr_code_scanner:")
     st.stop()
 
-with db.sesion() as s:
-    resultado = repositorio.consultar_sello(s, codigo)
+with st.spinner("Verificando la bitácora…"):
+    with db.sesion() as s:
+        resultado = repositorio.consultar_sello(s, codigo)
 
 if resultado is None:
-    st.error("No se encontró ninguna conformidad con ese código.", icon=":material/search_off:")
+    st.error("No se encontró ninguna conformidad con ese código. Revisa que esté completo.",
+             icon=":material/search_off:")
     st.stop()
 
 if resultado["integra"]:
@@ -36,39 +53,49 @@ else:
     for problema in resultado["problemas"]:
         st.markdown(f"- {problema}")
 
-st.subheader(f"{resultado['expediente']} · {resultado['descripcion']}")
-columnas = st.columns(2)
-columnas[0].markdown(
-    f"**Área usuaria:** {resultado['area']}  \n"
-    f"**Proveedor:** {resultado['proveedor']}  \n"
-    f"**Tipo:** {resultado['tipo'].capitalize()}  \n"
-    f"**Monto:** {soles(resultado['monto'])}"
+st.header(resultado["expediente"], anchor=False)
+st.write(resultado["descripcion"])
+st.caption(
+    f"{resultado['tipo'].capitalize()} · {resultado['area']} · Proveedor: "
+    f"{resultado['proveedor']}"
 )
-columnas[1].markdown(
-    f"**Conformidad dada por:** {resultado['conformante']} ({resultado['conformante_cargo']})  \n"
-    f"**Fecha de la conformidad:** {fecha(resultado['fecha_conformidad'])}  \n"
-    f"**Entrega real:** {fecha(resultado['fecha_entrega_real'])}  \n"
-    f"**Penalidad aplicada:** {soles(resultado['penalidad_aplicada'])}"
-)
-if resultado["observaciones"]:
-    st.caption(f"Observaciones: {resultado['observaciones']}")
 
-st.markdown("**Entregables y evidencias**")
+with st.container(border=True):
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Monto", soles(resultado["monto"]))
+    m2.metric("Entrega real", fecha(resultado["fecha_entrega_real"]))
+    m3.metric("Conformidad", fecha(resultado["fecha_conformidad"]))
+    m4.metric("Penalidad aplicada", soles(resultado["penalidad_aplicada"]))
+    st.caption(
+        f"Conformidad dada por **{resultado['conformante']}** "
+        f"({resultado['conformante_cargo']})."
+        + (f" Observaciones: {resultado['observaciones']}" if resultado["observaciones"] else "")
+    )
+
+st.subheader("Entregables y evidencias", anchor=False)
 for e in resultado["entregables"]:
-    with st.container(border=True):
-        st.markdown(
-            f"**{e['numero']}. {e['descripcion']}** — "
-            f"{'cumplido' if e['cumplido'] else 'no cumplido'}"
-        )
+    sin_evidencia = not e["evidencias"]
+    estado = "cumplido" if e["cumplido"] else "no cumplido"
+    icono = ":material/check_circle:" if e["cumplido"] else ":material/cancel:"
+    if sin_evidencia or any(not ev["coincide"] for ev in e["evidencias"]):
+        icono = ":material/warning:"
+    with st.expander(f"{e['numero']}. {e['descripcion']} — {estado}", icon=icono,
+                     expanded=not sin_evidencia):
         if e["observacion"]:
             st.caption(f"Observación: {e['observacion']}")
-        if not e["evidencias"]:
-            st.caption(":material/warning: Sin evidencia adjunta.")
-        for ev in e["evidencias"]:
-            marca = "coincide con su huella" if ev["coincide"] else "NO coincide con su huella"
-            st.caption(f"{ev['nombre_archivo']} · SHA-256 `{ev['sha256'][:16]}…` · {marca}")
-            if ev["miniatura"]:
-                st.image(ev["miniatura"], width=sello.LADO_MINIATURA)
+        if sin_evidencia:
+            st.warning("Sin evidencia adjunta.", icon=":material/warning:")
+        columnas = st.columns(3)
+        for i, ev in enumerate(e["evidencias"]):
+            with columnas[i % 3]:
+                if ev["miniatura"]:
+                    st.image(ev["miniatura"], width=sello.LADO_MINIATURA)
+                if ev["coincide"]:
+                    st.caption(f":material/verified: {ev['nombre_archivo']}")
+                else:
+                    st.caption(f":material/gpp_bad: {ev['nombre_archivo']} — no coincide "
+                               "con su huella")
+                st.caption(f"SHA-256 `{ev['sha256'][:16]}…`")
 
 st.caption(
     "Datos sintéticos. Esta herramienta alerta y deja rastro: no determina responsabilidades."
