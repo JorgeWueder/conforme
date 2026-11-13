@@ -68,6 +68,10 @@
 - Decisiones: los entregables aprobados se añaden (no reemplazan) porque un expediente siempre nace con al menos uno; plazo y penalidades del documento son solo informativos (no se guardan); el PDF no se almacena, solo su huella.
 - Dependencias nuevas: `pypdf`, `pydantic`, `langchain-core`, `langchain-anthropic` (requirements.txt); `reportlab` (requirements-dev.txt).
 
+### Ajuste de UX posterior (13 nov 2026)
+- Detalle del expediente: bloque "Resumen" (conformidad, cumplidos con evidencia x de n, alertas sin cerrar, pagos) con aviso de qué entregables se dieron por cumplidos sin evidencia; cada entregable lleva una etiqueta de color (verde "Cumplido · con evidencia", naranja "Cumplido · SIN evidencia", rojo "No cumplido", gris "Sin conformidad"); aviso en Pagos si hay alertas sin cerrar.
+- Página pública `verificar`: mismas etiquetas y un aviso "N de M entregables sin evidencia. Que el rastro sea íntegro no significa que la conformidad esté respaldada". Revisado en el navegador en local (`EXP-2026-0300`).
+
 ### Decisiones tomadas en F2
 - **R3 = conformidad tardía** (decidido contigo): alerta si la conformidad se emite más de `CONFORMIDAD_PLAZO_MAXIMO_DIAS` después de la entrega real.
 - R1 da **una** alerta por expediente que lista los entregables cumplidos sin evidencia. Un entregable marcado "no cumplido" no exige evidencia.

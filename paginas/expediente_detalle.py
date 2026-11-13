@@ -58,6 +58,39 @@ derecha.markdown(
     f"**Entrega real:** {fecha(exp['fecha_entrega_real'])}"
 )
 
+# --- Resumen de estado ---------------------------------------------------------
+cumplidos = [e for e in entregables if e["cumplido"]]
+cumplidos_sin_evidencia = [e for e in cumplidos if not e["evidencias"]]
+alertas_sin_cerrar = [a for a in alertas if a["estado"] != ESTADO_CERRADA]
+
+
+def _estado_entregable(e: dict) -> tuple[str, str]:
+    """Texto y color del estado de un entregable."""
+    if e["cumplido"] is None:
+        return "Sin conformidad", "gray"
+    if not e["cumplido"]:
+        return "No cumplido", "red"
+    if not e["evidencias"]:
+        return "Cumplido · SIN evidencia", "orange"
+    return "Cumplido · con evidencia", "green"
+
+
+with st.container(border=True):
+    st.markdown("**Resumen**")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Conformidad", "Registrada" if conformidad else "Pendiente")
+    c2.metric("Cumplidos con evidencia",
+              f"{len(cumplidos) - len(cumplidos_sin_evidencia)} de {len(cumplidos)}"
+              if conformidad else "—",
+              help="Entregables dados por cumplidos que tienen al menos un archivo adjunto.")
+    c3.metric("Alertas sin cerrar", len(alertas_sin_cerrar))
+    c4.metric("Pagos", len(pagos))
+    if cumplidos_sin_evidencia:
+        numeros = ", ".join(str(e["numero"]) for e in cumplidos_sin_evidencia)
+        st.warning(
+            f"Faltan evidencias: los entregables n.º {numeros} se dieron por cumplidos "
+            "sin ningún archivo adjunto.", icon=":material/warning:")
+
 # --- Alertas -------------------------------------------------------------------
 st.divider()
 st.subheader("Alertas")
@@ -132,16 +165,14 @@ hay_evidencias = any(e["evidencias"] for e in entregables)
 ver_evidencias = hay_evidencias and st.toggle("Mostrar evidencias")
 for e in entregables:
     with st.container(border=True):
-        if e["cumplido"] is None:
-            estado = "sin conformidad"
-        else:
-            estado = "cumplido" if e["cumplido"] else "no cumplido"
-        st.markdown(f"**{e['numero']}. {e['descripcion']}** — {estado}")
+        texto_estado, color_estado = _estado_entregable(e)
+        st.markdown(f"**{e['numero']}. {e['descripcion']}**")
+        st.badge(texto_estado, color=color_estado)
         if e["observacion"]:
             st.caption(f"Observación: {e['observacion']}")
         if e["cumplido"] is not None:
             if not e["evidencias"]:
-                st.caption(":material/warning: Sin evidencia adjunta.")
+                st.caption(":material/warning: No hay ningún archivo adjunto.")
             for evidencia in e["evidencias"]:
                 st.caption(
                     f"Evidencia: {evidencia['nombre_archivo']} · "
@@ -164,6 +195,11 @@ st.divider()
 st.subheader("Pagos")
 if not pagos:
     st.write("Sin pagos registrados.")
+elif alertas_sin_cerrar:
+    st.warning(
+        f"Este expediente tiene {len(alertas_sin_cerrar)} alertas sin cerrar y ya registra "
+        "pagos. El sistema no bloquea el pago: es una señal para revisar.",
+        icon=":material/warning:")
 for p in pagos:
     st.markdown(
         f"- {fecha(p['fecha_pago'])} · {soles(p['monto'])} · penalidad descontada "

@@ -73,12 +73,23 @@ with st.container(border=True):
     )
 
 st.subheader("Entregables y evidencias", anchor=False)
+cumplidos_sin_evidencia = [e for e in resultado["entregables"]
+                           if e["cumplido"] and not e["evidencias"]]
+if cumplidos_sin_evidencia:
+    st.warning(
+        f"**{len(cumplidos_sin_evidencia)} de {len(resultado['entregables'])} entregables se "
+        "dieron por cumplidos sin ninguna evidencia.** Que el rastro sea íntegro no significa "
+        "que la conformidad esté respaldada.", icon=":material/warning:")
 for e in resultado["entregables"]:
     sin_evidencia = not e["evidencias"]
-    estado = "cumplido" if e["cumplido"] else "no cumplido"
-    icono = ":material/check_circle:" if e["cumplido"] else ":material/cancel:"
-    if sin_evidencia or any(not ev["coincide"] for ev in e["evidencias"]):
-        icono = ":material/warning:"
+    if not e["cumplido"]:
+        estado, icono = ":red-badge[No cumplido]", ":material/cancel:"
+    elif sin_evidencia:
+        estado, icono = ":orange-badge[Cumplido · SIN evidencia]", ":material/warning:"
+    else:
+        estado, icono = ":green-badge[Cumplido · con evidencia]", ":material/check_circle:"
+    if any(not ev["coincide"] for ev in e["evidencias"]):
+        icono = ":material/gpp_bad:"
     with st.expander(f"{e['numero']}. {e['descripcion']} — {estado}", icon=icono,
                      expanded=not sin_evidencia):
         if e["observacion"]:
