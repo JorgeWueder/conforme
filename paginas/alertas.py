@@ -4,7 +4,7 @@ from conforme import db, normativa, repositorio
 from conforme.errores import ErrorValidacion
 from conforme.interfaz import (
     AVISO_NO_BLOQUEA, ETIQUETAS_ESTADO, ETIQUETAS_REVISION, ETIQUETAS_SEVERIDAD,
-    actor_actual, fecha_hora, mostrar_aviso_pendiente,
+    actor_actual, fecha_hora, md, mostrar_aviso_pendiente,
 )
 from conforme.modelos import ESTADO_CERRADA, ESTADO_ESCALADA, ROL_AUDITOR, ROL_TESORERIA
 from conforme.permisos import PermisoDenegado
@@ -82,9 +82,9 @@ st.markdown(
     f"estado **{ETIQUETAS_ESTADO[alerta['estado']].lower()}** · "
     f"creada el {fecha_hora(alerta['creada_en'])}"
 )
-st.write(alerta["explicacion"])
+st.write(md(alerta["explicacion"]))
 if alerta["implicado"]:
-    st.caption(f"Persona implicada: {alerta['implicado']}")
+    st.caption(f"Persona implicada: {md(alerta['implicado'])}")
 if st.button("Abrir el expediente", icon=":material/description:"):
     st.session_state["expediente_id"] = alerta["expediente_id"]
     st.switch_page("paginas/expediente_detalle.py")
@@ -94,8 +94,8 @@ if not revisiones:
     st.caption("Sin descargos ni revisiones todavía.")
 for r in revisiones:
     with st.container(border=True):
-        st.markdown(f"**{ETIQUETAS_REVISION[r['tipo']]}** · {fecha_hora(r['creado_en'])} · {r['autor']}")
-        st.write(r["texto"])
+        st.markdown(f"**{ETIQUETAS_REVISION[r['tipo']]}** · {fecha_hora(r['creado_en'])} · {md(r['autor'])}")
+        st.write(md(r["texto"]))
 
 
 def ejecutar(accion, texto: str, aviso: str) -> None:

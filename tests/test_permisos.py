@@ -52,9 +52,9 @@ def test_linea_de_tiempo_de_expediente_propio(sesion_sembrada):
     acciones = [e["accion"] for e in eventos]
     assert acciones[:3] == ["expediente.registrado", "orden.emitida", "conformidad.registrada"]
     assert acciones.count("evidencia.adjuntada") >= 2
-    assert acciones[-3:] == ["alerta.generada"] * 3
+    assert acciones[-4:] == ["alerta.generada"] * 3 + ["conformidad.sellada"]
     assert eventos[0]["actor"] and eventos[1]["documento_sha256"]
-    assert eventos[-1]["actor"] is None  # las alertas las genera el sistema
+    assert eventos[-1]["actor"] is None  # alertas y sello los genera el sistema
 
 
 @pytest.mark.parametrize("username", ["inf1", "tes1"])

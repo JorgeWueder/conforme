@@ -10,11 +10,13 @@ ese caso.
 """
 import hashlib
 import json
+import threading
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import insert, select, text
+from sqlalchemy import func, insert, select, text
 from sqlalchemy.orm import Session
 
 from conforme.modelos import Bitacora
@@ -140,3 +142,46 @@ def verificar_cadena(sesion: Session) -> ResultadoVerificacion:
             )
         anterior = r.hash
     return ResultadoVerificacion(True, len(registros))
+
+
+# --- Verificación con caché corto (para la página pública) ---------------------------
+# Recorrer toda la cadena cuesta O(n) (unos 4 s con 2.400 registros en Neon) y la página
+# pública puede abrirla cualquiera. Se reutiliza el último resultado mientras:
+#   - no cambie la «huella rápida» de la cadena (n.º de registros, último id y último hash),
+#     de modo que añadir o borrar registros se detecta siempre, y
+#   - no pase TTL_VERIFICACION segundos.
+# Contrapartida asumida: una alteración en el MEDIO de la cadena puede tardar hasta
+# TTL_VERIFICACION segundos en verse, o se ve al instante pidiendo «verificar de nuevo»
+# (limitado a una recomprobación completa cada INTERVALO_MINIMO_FORZADO segundos).
+TTL_VERIFICACION = 15.0
+INTERVALO_MINIMO_FORZADO = 5.0
+_cache: dict = {"clave": None, "momento": 0.0, "resultado": None}
+_candado_cache = threading.Lock()
+
+
+@dataclass(frozen=True)
+class VerificacionCacheada:
+    resultado: ResultadoVerificacion
+    hace_segundos: float   # antigüedad del resultado (0 si se acaba de calcular)
+    desde_cache: bool
+
+
+def _huella_rapida(sesion: Session) -> tuple:
+    total, ultimo_id = sesion.execute(select(func.count(), func.max(Bitacora.id))).one()
+    ultimo_hash = sesion.execute(
+        select(Bitacora.hash).order_by(Bitacora.id.desc()).limit(1)).scalar_one_or_none()
+    return total, ultimo_id, ultimo_hash
+
+
+def verificar_cadena_cacheada(sesion: Session, forzar: bool = False) -> VerificacionCacheada:
+    """Como `verificar_cadena`, pero reutilizando un resultado reciente (ver arriba)."""
+    huella = _huella_rapida(sesion)
+    with _candado_cache:  # una sola recomprobación a la vez; las demás visitas la reutilizan
+        edad = time.monotonic() - _cache["momento"]
+        vigente = _cache["resultado"] is not None and _cache["clave"] == huella
+        limite = INTERVALO_MINIMO_FORZADO if forzar else TTL_VERIFICACION
+        if vigente and edad < limite:
+            return VerificacionCacheada(_cache["resultado"], edad, True)
+        resultado = verificar_cadena(sesion)
+        _cache.update(clave=huella, momento=time.monotonic(), resultado=resultado)
+        return VerificacionCacheada(resultado, 0.0, False)

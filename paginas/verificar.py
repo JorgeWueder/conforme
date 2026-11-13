@@ -2,7 +2,7 @@
 import streamlit as st
 
 from conforme import db, repositorio, sello
-from conforme.interfaz import fecha, soles
+from conforme.interfaz import fecha, md, soles
 
 con_sesion = st.session_state.get("actor") is not None
 
@@ -32,9 +32,10 @@ if not codigo:
     st.info("Escanea el QR del sello o pega aquí su código.", icon=":material/qr_code_scanner:")
     st.stop()
 
+forzar = st.session_state.pop("forzar_verificacion", False)
 with st.spinner("Verificando la bitácora…"):
     with db.sesion() as s:
-        resultado = repositorio.consultar_sello(s, codigo)
+        resultado = repositorio.consultar_sello(s, codigo, forzar=forzar)
 
 if resultado is None:
     st.error("No se encontró ninguna conformidad con ese código. Revisa que esté completo.",
@@ -51,13 +52,22 @@ else:
     st.error("**Alterada.** El rastro de esta conformidad no coincide con el sello.",
              icon=":material/gpp_bad:")
     for problema in resultado["problemas"]:
-        st.markdown(f"- {problema}")
+        st.markdown(f"- {md(problema)}")
 
-st.header(resultado["expediente"], anchor=False)
-st.write(resultado["descripcion"])
+pie, boton = st.columns([3, 1], vertical_alignment="center")
+pie.caption(
+    f"Bitácora verificada hace {resultado['verificado_hace']:.0f} s (se reutiliza unos "
+    "segundos para no saturar el servidor)." if resultado["desde_cache"]
+    else "Bitácora verificada ahora mismo.")
+if boton.button("Verificar de nuevo", icon=":material/refresh:", width="stretch"):
+    st.session_state["forzar_verificacion"] = True
+    st.rerun()
+
+st.header(md(resultado["expediente"]), anchor=False)
+st.write(md(resultado["descripcion"]))
 st.caption(
-    f"{resultado['tipo'].capitalize()} · {resultado['area']} · Proveedor: "
-    f"{resultado['proveedor']}"
+    f"{md(resultado['tipo'].capitalize())} · {md(resultado['area'])} · Proveedor: "
+    f"{md(resultado['proveedor'])}"
 )
 
 with st.container(border=True):
@@ -67,9 +77,9 @@ with st.container(border=True):
     m3.metric("Conformidad", fecha(resultado["fecha_conformidad"]))
     m4.metric("Penalidad aplicada", soles(resultado["penalidad_aplicada"]))
     st.caption(
-        f"Conformidad dada por **{resultado['conformante']}** "
-        f"({resultado['conformante_cargo']})."
-        + (f" Observaciones: {resultado['observaciones']}" if resultado["observaciones"] else "")
+        f"Conformidad dada por **{md(resultado['conformante'])}** "
+        f"({md(resultado['conformante_cargo'])})."
+        + (f" Observaciones: {md(resultado['observaciones'])}" if resultado["observaciones"] else "")
     )
 
 st.subheader("Entregables y evidencias", anchor=False)
@@ -90,10 +100,10 @@ for e in resultado["entregables"]:
         estado, icono = ":green-badge[Cumplido · con evidencia]", ":material/check_circle:"
     if any(not ev["coincide"] for ev in e["evidencias"]):
         icono = ":material/gpp_bad:"
-    with st.expander(f"{e['numero']}. {e['descripcion']} — {estado}", icon=icono,
+    with st.expander(f"{e['numero']}. {md(e['descripcion'])} — {estado}", icon=icono,
                      expanded=not sin_evidencia):
         if e["observacion"]:
-            st.caption(f"Observación: {e['observacion']}")
+            st.caption(f"Observación: {md(e['observacion'])}")
         if sin_evidencia:
             st.warning("Sin evidencia adjunta.", icon=":material/warning:")
         columnas = st.columns(3)
@@ -102,9 +112,9 @@ for e in resultado["entregables"]:
                 if ev["miniatura"]:
                     st.image(ev["miniatura"], width=sello.LADO_MINIATURA)
                 if ev["coincide"]:
-                    st.caption(f":material/verified: {ev['nombre_archivo']}")
+                    st.caption(f":material/verified: {md(ev['nombre_archivo'])}")
                 else:
-                    st.caption(f":material/gpp_bad: {ev['nombre_archivo']} — no coincide "
+                    st.caption(f":material/gpp_bad: {md(ev['nombre_archivo'])} — no coincide "
                                "con su huella")
                 st.caption(f"SHA-256 `{ev['sha256'][:16]}…`")
 

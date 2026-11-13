@@ -4,7 +4,7 @@ from conforme import db, repositorio
 from conforme.errores import ErrorValidacion
 from conforme.ia import extractor
 from conforme.ia.extractor import PropuestaIA
-from conforme.interfaz import actor_actual, fecha_hora, mostrar_aviso_pendiente
+from conforme.interfaz import actor_actual, fecha_hora, md, mostrar_aviso_pendiente
 from conforme.modelos import ROL_AREA_USUARIA
 from conforme.permisos import PermisoDenegado
 
@@ -33,7 +33,7 @@ actual = st.session_state.get("expediente_id")
 indice = next((i for i, e in enumerate(elegibles) if e["id"] == actual), 0)
 exp = st.selectbox(
     "Expediente", elegibles, index=indice,
-    format_func=lambda e: f"{e['codigo']} · {e['descripcion'][:70]}",
+    format_func=lambda e: f"{e['codigo']} · {md(e['descripcion'][:70])}",
 )
 
 with db.sesion() as s:
@@ -45,9 +45,9 @@ pendiente = next((x for x in extracciones if x["estado"] == "propuesta"), None)
 with st.container(border=True):
     st.markdown(f"**Expediente:** {exp['codigo']} · {exp['tipo'].capitalize()} · "
                 f"plazo {exp['plazo_dias']} días")
-    st.write(exp["descripcion"])
+    st.write(md(exp["descripcion"]))
     st.caption("Entregables que ya tiene: " + (
-        "; ".join(f"{e['numero']}. {e['descripcion']}" for e in existentes) or "ninguno"))
+        "; ".join(f"{e['numero']}. {md(e['descripcion'])}" for e in existentes) or "ninguno"))
 
 # --- Subir y leer --------------------------------------------------------------
 with st.container(border=True):
@@ -59,9 +59,14 @@ with st.container(border=True):
             icon=":material/download:",
         )
     archivo = st.file_uploader("Términos de referencia (PDF)", type=["pdf"])
+    if pendiente:
+        st.info("Este expediente tiene una propuesta pendiente (abajo): apruébala o "
+                "recházala antes de leer otro documento.", icon=":material/hourglass_top:")
     if st.button("Leer documento", type="primary", icon=":material/auto_awesome:",
-                 disabled=archivo is None):
+                 disabled=archivo is None or pendiente is not None):
         try:
+            with db.sesion() as s:  # antes de gastar una llamada al modelo
+                repositorio.comprobar_cupo_ia(s, actor, exp["id"])
             with st.spinner("Leyendo el documento…"):
                 resultado = extractor.extraer(
                     archivo.getvalue(),
@@ -72,6 +77,7 @@ with st.container(border=True):
                     s, actor, exp["id"], archivo_nombre=archivo.name,
                     archivo_sha256=resultado.archivo_sha256, propuesta=resultado.propuesta,
                     origen=resultado.origen, aviso=resultado.aviso,
+                    advertencias=resultado.advertencias,
                 )
         except (ErrorValidacion, PermisoDenegado) as error:
             st.error(str(error))
@@ -82,11 +88,11 @@ with st.container(border=True):
 # --- Revisar la propuesta ------------------------------------------------------
 if pendiente:
     st.subheader("2. Revisa la propuesta", anchor=False)
-    st.caption(f"Documento «{pendiente['archivo_nombre']}» · {fecha_hora(pendiente['creado_en'])}")
+    st.caption(f"Documento «{md(pendiente['archivo_nombre'])}» · {fecha_hora(pendiente['creado_en'])}")
     if pendiente["origen"] == "respaldo":
         st.warning(
             "**Resultado de respaldo.** No es una lectura de tu documento: es un ejemplo "
-            f"guardado. {pendiente['aviso'] or ''}",
+            f"guardado. {md(pendiente['aviso'] or '')}",
             icon=":material/inventory_2:",
         )
     else:
@@ -96,16 +102,18 @@ if pendiente:
     propuesta = pendiente["resultado"]
     lectura = PropuestaIA.model_validate(propuesta)
     if lectura.objeto:
-        st.markdown(f"**Objeto del documento:** {lectura.objeto}")
-        st.caption(f"Objeto del expediente: {exp['descripcion']}")
+        st.markdown(f"**Objeto del documento:** {md(lectura.objeto)}")
+        st.caption(f"Objeto del expediente: {md(exp['descripcion'])}")
+    for advertencia in propuesta.get("advertencias", []):
+        st.warning(md(advertencia), icon=":material/content_cut:")
     avisos = extractor.avisos_de_coherencia(
         lectura, exp, pendiente["origen"], [e["descripcion"] for e in existentes])
     hay_discrepancia = any(nivel == "error" for nivel, _ in avisos)
     for nivel, texto in avisos:
         if nivel == "error":
-            st.error(texto, icon=":material/error:")
+            st.error(md(texto), icon=":material/error:")
         else:
-            st.warning(texto, icon=":material/warning:")
+            st.warning(md(texto), icon=":material/warning:")
     st.markdown("**Entregables propuestos** (puedes editar, borrar o añadir filas)")
     filas = st.data_editor(
         [{"descripcion": e["descripcion"]} for e in propuesta["entregables"]],
@@ -127,7 +135,7 @@ if pendiente:
                 st.write(f"Plazo según el documento: {plazo} días calendario "
                          f"(el expediente tiene {exp['plazo_dias']}).")
             for penalidad in propuesta.get("penalidades", []):
-                st.write(f"- {penalidad}")
+                st.write(f"- {md(penalidad)}")
 
     confirmado = True
     if hay_discrepancia:
@@ -164,6 +172,6 @@ if revisadas:
     with st.expander(f"Historial de lecturas ({len(revisadas)})"):
         for x in revisadas:
             st.markdown(
-                f"- {fecha_hora(x['creado_en'])} · «{x['archivo_nombre']}» · "
+                f"- {fecha_hora(x['creado_en'])} · «{md(x['archivo_nombre'])}» · "
                 f"{x['origen']} · **{x['estado']}**"
             )

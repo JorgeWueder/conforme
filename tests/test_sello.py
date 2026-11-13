@@ -5,12 +5,13 @@ revierte al terminar.
 """
 import io
 import re
+from datetime import timedelta
 
 import pytest
 from PIL import Image
 from sqlalchemy import text
 
-from conforme import repositorio, sello
+from conforme import config, repositorio, sello
 from datos import caso_estrella
 from tests.conftest import actor_de
 from tests.test_conformidad import _pendiente, _registrar
@@ -56,6 +57,38 @@ def test_miniatura_solo_de_imagenes():
     mini = Image.open(io.BytesIO(sello.miniatura(imagen.getvalue())))
     assert max(mini.size) == sello.LADO_MINIATURA
     assert sello.miniatura(b"%PDF-1.4 no es una imagen") is None
+
+
+def _entorno(monkeypatch, **valores):
+    monkeypatch.setattr(config, "leer", lambda nombre, defecto=None: valores.get(nombre, defecto))
+
+
+def test_sin_base_url_el_qr_usa_el_servidor_actual_y_solo_al_final_localhost(monkeypatch):
+    _entorno(monkeypatch)
+    assert sello.url_base("https://conforme-x.streamlit.app") == "https://conforme-x.streamlit.app"
+    assert sello.url_base(None) == "http://localhost:8501"
+    assert sello.aviso_url_base("https://conforme-x.streamlit.app") is None  # nada que avisar
+
+
+def test_con_base_url_se_usa_esa_aunque_difiera(monkeypatch):
+    _entorno(monkeypatch, BASE_URL="https://dominio.example/")
+    assert sello.url_base("https://otro.streamlit.app") == "https://dominio.example"
+
+
+def test_aviso_cuando_base_url_apunta_a_otro_servidor(monkeypatch):
+    _entorno(monkeypatch, BASE_URL="https://conforme.streamlit.app")
+    aviso = sello.aviso_url_base("https://conforme-gyc3.streamlit.app")
+    assert aviso and "conforme.streamlit.app" in aviso and "conforme-gyc3" in aviso
+    _entorno(monkeypatch, BASE_URL="http://localhost:8501")
+    assert sello.aviso_url_base("https://conforme-gyc3.streamlit.app")  # localhost en el despliegue
+
+
+def test_en_local_no_hay_aviso_aunque_cambie_el_puerto(monkeypatch):
+    _entorno(monkeypatch, BASE_URL="http://localhost:8501")
+    assert sello.aviso_url_base("http://localhost:8502") is None
+    _entorno(monkeypatch, BASE_URL="https://app.example/")
+    assert sello.aviso_url_base("https://APP.example:443") is None
+    assert sello.aviso_url_base(None) is None
 
 
 # --- Con base de datos ----------------------------------------------------------
@@ -146,10 +179,83 @@ def test_una_conformidad_nueva_queda_sellada_e_integra(sesion_sembrada):
     _registrar(s, inf2, exp)
     conformidad = repositorio.obtener_conformidad(s, inf2, exp["id"])
     assert sello.codigo_valido(conformidad["codigo_sello"])
-    ultimo = s.execute(text(
-        "SELECT max(id) FROM bitacora WHERE expediente_id = :e "
-        "AND accion IN ('conformidad.registrada', 'evidencia.adjuntada')"), {"e": exp["id"]}
-    ).scalar_one()
-    assert conformidad["sello_bitacora_id"] == ultimo
+    sellada = s.execute(text(
+        "SELECT id, hash, detalle FROM bitacora WHERE expediente_id = :e "
+        "AND accion = 'conformidad.sellada'"), {"e": exp["id"]}).one()
+    assert conformidad["sello_bitacora_id"] == sellada.id
+    assert conformidad["sello_hash"] == sellada.hash
+    assert set(sellada.detalle["secciones"]) == {"expediente", "conformidad", "entregables",
+                                                 "evidencias"}
     r = repositorio.consultar_sello(s, conformidad["codigo_sello"])
     assert r["integra"] and r["expediente"] == exp["codigo"]
+
+
+def test_el_codigo_del_sello_no_queda_en_la_bitacora(sesion_sembrada):
+    s = sesion_sembrada
+    codigos = s.execute(text("SELECT codigo_sello FROM conformidad")).scalars().all()
+    volcado = " ".join(s.execute(text("SELECT detalle::text FROM bitacora")).scalars().all())
+    assert not any(c in volcado for c in codigos)
+
+
+def test_lo_que_ocurre_despues_del_sello_no_lo_invalida(sesion_sembrada):
+    """Pagos, alertas y reevaluaciones son posteriores y no forman parte del contenido sellado."""
+    s = sesion_sembrada
+    exp, conformidad = _estrella(s)
+    tes1, oci1 = actor_de(s, "tes1"), actor_de(s, "oci1")
+    repositorio.registrar_pago(s, tes1, exp["id"], fecha_pago=exp["fecha_orden"] + timedelta(days=100),
+                               monto="1000.00")
+    repositorio.reevaluar(s, tes1, exp["id"])
+    alerta = repositorio.listar_alertas(s, oci1, expediente_id=exp["id"])[0]
+    repositorio.cerrar_alerta(s, oci1, alerta["id"], "Revisada")
+    assert repositorio.consultar_sello(s, conformidad["codigo_sello"])["integra"]
+
+
+# Cada manipulación hecha directamente en la base (sin pasar por la aplicación) debe detectarse.
+_C = "(SELECT id FROM conformidad WHERE codigo_sello = :c)"
+_CE3 = ("(SELECT ce.id FROM conformidad_entregable ce JOIN entregable e ON e.id = ce.entregable_id"
+        f" WHERE ce.conformidad_id = {_C} AND e.numero = 3)")
+MANIPULACIONES = {
+    "penalidad": "UPDATE conformidad SET penalidad_aplicada = 3200 WHERE codigo_sello = :c",
+    "fecha_conformidad":
+        "UPDATE conformidad SET fecha_conformidad = fecha_conformidad + 10 WHERE codigo_sello = :c",
+    "observaciones":
+        "UPDATE conformidad SET observaciones = 'texto cambiado' WHERE codigo_sello = :c",
+    "conformante": "UPDATE conformidad SET conformante_id = (SELECT max(id) FROM persona) "
+                   "WHERE codigo_sello = :c",
+    "entregable_no_cumplido":
+        f"UPDATE conformidad_entregable SET cumplido = false WHERE id = {_CE3}",
+    "observacion_de_entregable":
+        f"UPDATE conformidad_entregable SET observacion = 'otra' WHERE id = {_CE3}",
+    "descripcion_de_entregable":
+        "UPDATE entregable SET descripcion = 'otra cosa' WHERE numero = 1 AND expediente_id = "
+        f"(SELECT expediente_id FROM conformidad WHERE id = {_C})",
+    "monto_del_expediente":
+        f"UPDATE expediente SET monto = 1000 WHERE id = (SELECT expediente_id FROM conformidad"
+        f" WHERE id = {_C})",
+    "fecha_de_entrega":
+        f"UPDATE expediente SET fecha_entrega_real = fecha_entrega_real - 20 WHERE id = ("
+        f"SELECT expediente_id FROM conformidad WHERE id = {_C})",
+    "borrar_una_evidencia":
+        "DELETE FROM evidencia WHERE id = (SELECT ev.id FROM evidencia ev JOIN"
+        " conformidad_entregable ce ON ce.id = ev.conformidad_entregable_id"
+        f" WHERE ce.conformidad_id = {_C} ORDER BY ev.id LIMIT 1)",
+    "evidencia_falsa_sin_bitacora":
+        "INSERT INTO evidencia (conformidad_entregable_id, nombre_archivo, mime, tamano, sha256,"
+        " contenido, subido_por, subido_en) SELECT ce.id, 'falsa.pdf', 'application/pdf', 4,"
+        " repeat('a', 64), '\x25504446'::bytea, 1, now() FROM conformidad_entregable ce"
+        f" WHERE ce.conformidad_id = {_C} LIMIT 1",
+    "borrar_el_estado_de_un_entregable":
+        f"DELETE FROM conformidad_entregable WHERE id = {_CE3}",
+}
+
+
+@pytest.mark.parametrize("nombre", sorted(MANIPULACIONES))
+def test_manipular_los_datos_directamente_en_la_base_se_detecta(sesion_sembrada, nombre):
+    s = sesion_sembrada
+    _, conformidad = _estrella(s)
+    antes = repositorio.consultar_sello(s, conformidad["codigo_sello"])
+    assert antes["integra"]
+    s.execute(text(MANIPULACIONES[nombre]), {"c": conformidad["codigo_sello"]})
+    despues = repositorio.consultar_sello(s, conformidad["codigo_sello"])
+    assert not despues["integra"], nombre
+    assert despues["problemas"]

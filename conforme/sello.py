@@ -3,14 +3,18 @@
 Funciones puras (sin base de datos). La consulta pública y el sellado
 contra la base viven en `repositorio.py`.
 """
+import hashlib
 import io
+import json
 import re
 import secrets
+from urllib.parse import urlsplit
 
 import qrcode
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from conforme import config
+from conforme.bitacora import _normalizar
 
 # 12 bytes aleatorios = 96 bits; en base64 URL-safe son 16 caracteres.
 _BYTES_CODIGO = 12
@@ -27,8 +31,39 @@ def codigo_valido(codigo: str | None) -> bool:
     return bool(codigo) and _PATRON_CODIGO.fullmatch(codigo) is not None
 
 
-def url_base() -> str:
-    return (config.leer("BASE_URL", "http://localhost:8501") or "").rstrip("/")
+def huella(valor) -> str:
+    """SHA-256 de un valor en JSON canónico (claves ordenadas; fechas y montos como texto)."""
+    canonico = json.dumps(_normalizar(valor), sort_keys=True, ensure_ascii=False,
+                          separators=(",", ":"))
+    return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+
+
+def url_base(origen_actual: str | None = None) -> str:
+    """URL pública de la app: BASE_URL si está definida; si no, desde donde se sirve la app
+    ahora mismo (así el QR del despliegue apunta bien aunque falte el secreto); y, solo
+    como último recurso, localhost."""
+    configurada = config.leer("BASE_URL")
+    if configurada:
+        return configurada.rstrip("/")
+    return (origen_actual or "http://localhost:8501").rstrip("/")
+
+
+def _servidor(url: str) -> str:
+    return (urlsplit(url).hostname or "").lower()
+
+
+def aviso_url_base(origen_actual: str | None) -> str | None:
+    """Aviso si BASE_URL apunta a un servidor distinto de aquel desde el que se sirve la app
+    (el QR llevaría a otra parte). Se compara solo el servidor, no el puerto: en local,
+    localhost:8501 y localhost:8502 son lo mismo. Sin BASE_URL no hay nada que avisar."""
+    configurada = config.leer("BASE_URL")
+    if not configurada or not origen_actual:
+        return None
+    if _servidor(configurada) == _servidor(origen_actual):
+        return None
+    return (f"El QR y el enlace apuntan a «{configurada.rstrip('/')}», pero esta app se "
+            f"sirve desde «{origen_actual}». Corrige BASE_URL en los secretos "
+            f"(o bórrala: se usaría {origen_actual}).")
 
 
 def url_verificacion(codigo: str, base: str | None = None) -> str:

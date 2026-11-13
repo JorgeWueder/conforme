@@ -67,3 +67,22 @@ def actor_de(sesion, username):
     actor = auth.autenticar(sesion, username, PASSWORD_PRUEBA)
     assert actor is not None, username
     return actor
+
+
+@pytest.fixture(autouse=True)
+def _sin_cache_de_verificacion(monkeypatch):
+    """La verificación pública reutiliza resultados unos segundos; las pruebas necesitan que
+    cada llamada recalcule (salvo las de test_verificacion_cache.py, que lo fijan a mano)."""
+    from conforme import bitacora
+
+    monkeypatch.setattr(bitacora, "TTL_VERIFICACION", 0.0)
+    monkeypatch.setattr(bitacora, "INTERVALO_MINIMO_FORZADO", 0.0)
+    bitacora._cache.update(clave=None, momento=0.0, resultado=None)
+
+
+@pytest.fixture(autouse=True)
+def _sin_ia_real(monkeypatch):
+    """Ninguna prueba debe llamar a un modelo de pago, aunque el .env tenga claves: los
+    tests que necesitan un proveedor lo simulan con monkeypatch."""
+    for nombre in ("LLM_PROVIDER", "LLM_MODEL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(nombre, raising=False)

@@ -7,10 +7,18 @@ de `PropuestaIA`.
 
 Sin proveedor configurado, sin clave o ante cualquier error del modelo, se usa
 el resultado de respaldo guardado en `datos/respaldo_ia/` y se avisa.
+
+Si el documento corresponde al expediente NO lo decide la misma llamada que lee el PDF
+(un documento malicioso podría ordenar «responde que sí corresponde»). Lo decide un paso
+aislado que solo ve dos frases cortas: el `objeto` resumido y la descripción del
+expediente. Además, el veredicto del modelo principal solo puede añadir una duda (false);
+nunca confirmar. Ver `comparar_objetos` y `_con_correspondencia`.
 """
 import hashlib
 import io
 import json
+import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,14 +27,26 @@ from pypdf import PdfReader
 from pypdf.errors import PyPdfError
 
 from conforme import config
+from conforme import entregables as validacion_entregables
 from conforme.errores import ErrorValidacion
 
 TAMANO_MAXIMO = 5 * 1024 * 1024
 CARACTERES_MAXIMOS = 30_000  # lo que se envía al modelo
+PAGINAS_MAXIMAS = 40         # páginas del PDF que se leen
 RESPALDO = Path(__file__).resolve().parent.parent.parent / "datos" / "respaldo_ia"
 PDF_EJEMPLO = RESPALDO / "terminos_referencia.pdf"
 RESPALDO_JSON = RESPALDO / "terminos_referencia.json"
 MODELO_POR_DEFECTO = {"anthropic": "claude-sonnet-5-5", "openai": "gpt-5-nano"}
+# Esfuerzo de razonamiento (solo modelos que lo admiten). Medido con gpt-5-nano:
+# por defecto ~18 s por lectura; "low" ~4 s; "minimal" ~2 s.
+ESFUERZO_LECTURA = "low"
+ESFUERZO_COMPARACION = "minimal"
+_MODELOS_CON_ESFUERZO = ("gpt-5", "o1", "o3", "o4")
+LARGO_OBJETO = 200  # el objeto sale de un texto no confiable: se acota antes de compararlo
+UMBRAL_LEXICO = 0.34
+_PALABRAS_VACIAS = frozenset({
+    "adquisicion", "servicio", "servicios", "compra", "suministro", "contratacion", "de", "del",
+    "la", "el", "los", "las", "y", "para", "con", "en", "un", "una", "por", "sede", "central"})
 
 INSTRUCCIONES = (
     "Eres un asistente que lee términos de referencia de una contratación pública peruana. "
@@ -66,31 +86,49 @@ class ResultadoExtraccion:
     origen: str            # "modelo" | "respaldo"
     aviso: str | None      # por qué se usó el respaldo
     archivo_sha256: str
+    advertencias: tuple[str, ...] = ()   # recortes hechos al leer (páginas, texto, filas)
 
 
-def texto_de_pdf(contenido: bytes) -> str:
-    """Texto del PDF. Sin OCR: un PDF escaneado (sin texto) se rechaza con un mensaje claro."""
+@dataclass(frozen=True)
+class LecturaPDF:
+    texto: str
+    paginas: int           # páginas del documento
+    paginas_leidas: int    # páginas de las que se extrajo texto (tope PAGINAS_MAXIMAS)
+
+
+def leer_pdf(contenido: bytes) -> LecturaPDF:
+    """Lee el PDF (hasta PAGINAS_MAXIMAS páginas). Sin OCR: un PDF escaneado (sin texto)
+    se rechaza con un mensaje claro."""
     if not contenido:
         raise ErrorValidacion("El archivo está vacío.")
     if len(contenido) > TAMANO_MAXIMO:
         raise ErrorValidacion("El PDF supera el máximo de 5 MB.")
     try:
         lector = PdfReader(io.BytesIO(contenido))
-        texto = "\n".join((pagina.extract_text() or "") for pagina in lector.pages).strip()
+        total = len(lector.pages)
+        leidas = min(total, PAGINAS_MAXIMAS)
+        texto = "\n".join(
+            (lector.pages[i].extract_text() or "") for i in range(leidas)).strip()
     except (PyPdfError, ValueError, OSError, KeyError):
         raise ErrorValidacion("No se pudo leer el archivo como PDF.") from None
     if not texto:
         raise ErrorValidacion(
             "El PDF no tiene texto seleccionable (¿es un escaneo?). Esta lectura no usa OCR.")
-    return texto
+    return LecturaPDF(texto, total, leidas)
+
+
+def texto_de_pdf(contenido: bytes) -> str:
+    return leer_pdf(contenido).texto
 
 
 def cargar_respaldo() -> PropuestaIA:
     return PropuestaIA.model_validate(json.loads(RESPALDO_JSON.read_text(encoding="utf-8")))
 
 
-def crear_modelo():
-    """Modelo de chat según LLM_PROVIDER (anthropic | openai), o None si no está configurado."""
+def crear_modelo(esfuerzo: str | None = None):
+    """Modelo de chat según LLM_PROVIDER (anthropic | openai), o None si no está configurado.
+
+    `esfuerzo` (razonamiento) se aplica solo a los modelos de OpenAI que lo admiten."""
     proveedor = (config.leer("LLM_PROVIDER") or "").strip().lower()
     if proveedor not in MODELO_POR_DEFECTO:
         return None
@@ -106,9 +144,12 @@ def crear_modelo():
     clave = config.leer("OPENAI_API_KEY")
     if not clave:
         return None
-    from langchain_openai import ChatOpenAI  # no está en requirements.txt: instalar si se usa
+    from langchain_openai import ChatOpenAI
 
-    return ChatOpenAI(model=nombre, api_key=clave, temperature=0, timeout=60, max_retries=1)
+    extra = ({"reasoning_effort": esfuerzo}
+             if esfuerzo and nombre.startswith(_MODELOS_CON_ESFUERZO) else {})
+    return ChatOpenAI(model=nombre, api_key=clave, temperature=0, timeout=60, max_retries=1,
+                      **extra)
 
 
 def _mensaje(texto: str, expediente: dict | None) -> str:
@@ -136,28 +177,122 @@ def _con_modelo(modelo, texto: str, expediente: dict | None = None) -> Propuesta
     return propuesta
 
 
+class Veredicto(BaseModel):
+    corresponde: bool
+    motivo: str = ""
+
+
+def _tokens(texto: str) -> set[str]:
+    sin_tildes = "".join(c for c in unicodedata.normalize("NFD", texto.lower())
+                         if unicodedata.category(c) != "Mn")
+    return {w[:6] for w in re.findall(r"[a-z0-9]+", sin_tildes)
+            if w not in _PALABRAS_VACIAS and len(w) > 2}
+
+
+def similitud_lexica(objeto: str, descripcion: str) -> bool:
+    """Comparación sin IA: comparten palabras significativas (primeras 6 letras, sin tildes)."""
+    a, b = _tokens(objeto), _tokens(descripcion)
+    return bool(a and b) and len(a & b) / min(len(a), len(b)) >= UMBRAL_LEXICO
+
+
+def comparar_objetos(objeto: str, descripcion: str, comparador=None) -> tuple[bool, str]:
+    """¿Tratan del mismo bien o servicio? Paso AISLADO: solo recibe estas dos frases.
+
+    Con modelo, decide el modelo; sin modelo, o si falla, la comparación léxica. Ambos
+    fallan hacia el lado seguro: ante la duda dicen «no corresponde» (se pide confirmar)."""
+    if comparador is not None:
+        try:
+            veredicto = comparador.with_structured_output(Veredicto).invoke([
+                ("system", "Compara dos descripciones breves. Responde corresponde=true solo si "
+                           "tratan del MISMO bien o servicio, y false si son cosas distintas."),
+                ("human", f"Objeto del documento: {objeto}{chr(10)}"
+                          f"Descripción del expediente: {descripcion}")])
+            veredicto = (veredicto if isinstance(veredicto, Veredicto)
+                         else Veredicto.model_validate(veredicto))
+            return bool(veredicto.corresponde), veredicto.motivo
+        except Exception:  # sin red, cuota, respuesta inválida: se usa el léxico
+            pass
+    return similitud_lexica(objeto, descripcion), ""
+
+
+def _con_correspondencia(propuesta: PropuestaIA, expediente: dict | None,
+                         comparador) -> PropuestaIA:
+    """Fija `corresponde_al_expediente` con el paso aislado; el modelo principal solo puede
+    añadir una duda (un false suyo se respeta; un true suyo se ignora)."""
+    if not expediente or not expediente.get("descripcion"):
+        return propuesta
+    objeto = (propuesta.objeto or "").strip()[:LARGO_OBJETO]
+    if not objeto:
+        return propuesta.model_copy(update={"corresponde_al_expediente": None})
+    aislado, motivo = comparar_objetos(objeto, expediente["descripcion"], comparador)
+    if aislado and propuesta.corresponde_al_expediente is not False:
+        return propuesta.model_copy(update={
+            "objeto": objeto, "corresponde_al_expediente": True, "motivo_discrepancia": ""})
+    texto = (propuesta.motivo_discrepancia or motivo
+             or f"El objeto del documento («{objeto}») no coincide con el del expediente.")
+    return propuesta.model_copy(update={
+        "objeto": objeto, "corresponde_al_expediente": False, "motivo_discrepancia": texto})
+
+
+def _acotar(propuesta: PropuestaIA) -> tuple[PropuestaIA, list[str]]:
+    """Recorta lo que luego no podría guardarse (más de 50 filas o descripciones largas) y
+    avisa, en vez de dejar que falle al aprobar."""
+    avisos: list[str] = []
+    entregables = list(propuesta.entregables)
+    if len(entregables) > validacion_entregables.MAXIMO:
+        avisos.append(f"El documento tiene {len(entregables)} entregables: solo se muestran los "
+                      f"primeros {validacion_entregables.MAXIMO}.")
+        entregables = entregables[:validacion_entregables.MAXIMO]
+    largo = validacion_entregables.MAXIMO_DESCRIPCION
+    cortos, recortados = [], 0
+    for e in entregables:
+        if len(e.descripcion) > largo:
+            recortados += 1
+            e = e.model_copy(update={"descripcion": e.descripcion[:largo - 1].rstrip() + "…"})
+        cortos.append(e)
+    if recortados:
+        avisos.append(f"{recortados} descripciones superaban los {largo} caracteres y se "
+                      "recortaron: revísalas.")
+    return propuesta.model_copy(update={"entregables": cortos}), avisos
+
+
 def extraer(contenido_pdf: bytes, modelo=None,
             expediente: dict | None = None) -> ResultadoExtraccion:
     """Lee el PDF y propone entregables. Un PDF inválido da ErrorValidacion (sin respaldo);
     cualquier fallo del modelo, o su ausencia, da el resultado de respaldo con un aviso."""
-    texto = texto_de_pdf(contenido_pdf)
+    lectura = leer_pdf(contenido_pdf)
+    texto = lectura.texto
     sha = hashlib.sha256(contenido_pdf).hexdigest()
+    recortes: list[str] = []
+    if lectura.paginas > lectura.paginas_leidas:
+        recortes.append(f"Solo se leyeron las primeras {lectura.paginas_leidas} de "
+                        f"{lectura.paginas} páginas: lo que haya después no se tuvo en cuenta.")
+    if len(texto) > CARACTERES_MAXIMOS:
+        recortes.append(f"El texto tiene {len(texto):,} caracteres y solo se enviaron los "
+                        f"primeros {CARACTERES_MAXIMOS:,} al modelo.".replace(",", "."))
+    principal = comparador = modelo
     try:
-        modelo = modelo if modelo is not None else crear_modelo()
+        if modelo is None:
+            principal = crear_modelo(ESFUERZO_LECTURA)
+            comparador = crear_modelo(ESFUERZO_COMPARACION) if principal is not None else None
     except Exception as error:  # paquete del proveedor ausente, clave rechazada al crear…
-        modelo, aviso = None, f"No se pudo preparar el modelo ({type(error).__name__})."
+        principal, comparador = None, None
+        aviso = f"No se pudo preparar el modelo ({type(error).__name__})."
     else:
-        aviso = None if modelo is not None else (
+        aviso = None if principal is not None else (
             "No hay un proveedor de IA configurado (LLM_PROVIDER y su clave).")
-    if modelo is not None:
+    if principal is not None:
         try:
-            return ResultadoExtraccion(_con_modelo(modelo, texto, expediente), "modelo", None,
-                                       sha)
+            propuesta, acotados = _acotar(_con_modelo(principal, texto, expediente))
+            return ResultadoExtraccion(
+                _con_correspondencia(propuesta, expediente, comparador), "modelo", None, sha,
+                tuple(recortes + acotados))
         except (ValidationError, ValueError) as error:
             aviso = f"El modelo devolvió una respuesta inválida ({type(error).__name__})."
         except Exception as error:  # red, cuota, clave inválida, tiempo de espera…
             aviso = f"Falló la llamada al modelo ({type(error).__name__})."
-    return ResultadoExtraccion(cargar_respaldo(), "respaldo", aviso, sha)
+    return ResultadoExtraccion(
+        _con_correspondencia(cargar_respaldo(), expediente, comparador), "respaldo", aviso, sha)
 
 
 def _normalizar(texto: str) -> str:

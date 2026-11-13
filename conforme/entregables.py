@@ -3,6 +3,7 @@ import csv
 import io
 
 MAXIMO = 50
+MAXIMO_DESCRIPCION = 300  # caracteres
 
 
 def validar(filas: list[dict]) -> tuple[list[dict], list[str]]:
@@ -21,6 +22,9 @@ def validar(filas: list[dict]) -> tuple[list[dict], list[str]]:
         vistos.add(numero)
         if not descripcion:
             errores.append(f"Fila {posicion}: falta la descripción.")
+        elif len(descripcion) > MAXIMO_DESCRIPCION:
+            errores.append(f"Fila {posicion}: la descripción supera los "
+                           f"{MAXIMO_DESCRIPCION} caracteres ({len(descripcion)}).")
         limpios.append({"numero": numero, "descripcion": descripcion})
     if not filas:
         errores.append("Hace falta al menos un entregable.")

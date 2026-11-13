@@ -11,7 +11,7 @@ from sqlalchemy import text
 from conforme import config, repositorio
 from conforme.errores import ErrorValidacion
 from conforme.ia import extractor
-from conforme.ia.extractor import EntregableIA, PropuestaIA
+from conforme.ia.extractor import EntregableIA, PropuestaIA, Veredicto
 from conforme.permisos import PermisoDenegado
 from tests.conftest import actor_de
 from tests.test_conformidad import _pendiente
@@ -22,14 +22,24 @@ PDF = extractor.PDF_EJEMPLO.read_bytes()
 class ModeloFalso:
     """Imita lo que usa el extractor de un modelo de LangChain."""
 
-    def __init__(self, respuesta=None, error=None):
-        self.respuesta, self.error, self.mensajes = respuesta, error, None
+    def __init__(self, respuesta=None, error=None, veredicto=None, error_veredicto=None):
+        self.respuesta, self.error = respuesta, error
+        self.veredicto, self.error_veredicto = veredicto, error_veredicto
+        self.mensajes = None   # mensajes de la lectura del PDF
+        self.llamadas = []     # (esquema, mensajes) de todas las llamadas
+        self._esquema = None
 
     def with_structured_output(self, esquema):
-        assert esquema is PropuestaIA
+        assert esquema in (PropuestaIA, Veredicto)
+        self._esquema = esquema
         return self
 
     def invoke(self, mensajes):
+        self.llamadas.append((self._esquema, mensajes))
+        if self._esquema is Veredicto:
+            if self.error_veredicto:
+                raise self.error_veredicto
+            return self.veredicto
         self.mensajes = mensajes
         if self.error:
             raise self.error
@@ -283,3 +293,221 @@ def test_con_conformidad_ya_no_se_pueden_ampliar_los_entregables(sesion_sembrada
                            if x["tiene_conformidad"])
     with pytest.raises(ErrorValidacion, match="ya tiene conformidad"):
         _proponer(s, inf1, con_conformidad)
+
+
+# --- Correspondencia documento-expediente: paso aislado --------------------------
+
+LUMINARIAS = {"tipo": "bien", "descripcion": "Adquisición de luminarias LED", "plazo_dias": 90}
+LIMPIEZA = {"tipo": "servicio", "plazo_dias": 15,
+            "descripcion": "Servicio de limpieza y desinfección de ambientes"}
+
+
+def _doc(**cambios):
+    datos = dict(objeto="Servicio de limpieza y desinfección de ambientes",
+                 entregables=[EntregableIA(numero=1, descripcion="Plan de trabajo")])
+    datos.update(cambios)
+    return PropuestaIA(**datos)
+
+
+def test_la_inyeccion_que_fuerza_corresponde_true_se_ignora():
+    """El modelo principal «obedece» al documento y dice true; el paso aislado dice false."""
+    modelo = ModeloFalso(_doc(corresponde_al_expediente=True),
+                         veredicto=Veredicto(corresponde=False, motivo="Son distintos"))
+    r = extractor.extraer(PDF, modelo=modelo, expediente=LUMINARIAS)
+    assert r.propuesta.corresponde_al_expediente is False
+    assert r.propuesta.motivo_discrepancia == "Son distintos"
+
+
+def test_el_paso_aislado_solo_ve_el_objeto_y_la_descripcion_no_el_texto_del_pdf():
+    modelo = ModeloFalso(_doc(), veredicto=Veredicto(corresponde=True))
+    extractor.extraer(PDF, modelo=modelo, expediente=LIMPIEZA)
+    [(_, mensajes)] = [(e, m) for e, m in modelo.llamadas if e is Veredicto]
+    visto = " ".join(texto for _, texto in mensajes)
+    assert "Servicio de limpieza y desinfección de ambientes" in visto
+    assert "Plan de trabajo" not in visto and "DOCUMENTO:" not in visto
+    assert extractor.texto_de_pdf(PDF)[:60] not in visto
+
+
+def test_un_false_del_modelo_principal_se_respeta_aunque_el_aislado_diga_true():
+    modelo = ModeloFalso(_doc(corresponde_al_expediente=False, motivo_discrepancia="Dudo"),
+                         veredicto=Veredicto(corresponde=True))
+    r = extractor.extraer(PDF, modelo=modelo, expediente=LIMPIEZA)
+    assert r.propuesta.corresponde_al_expediente is False
+    assert r.propuesta.motivo_discrepancia == "Dudo"
+
+
+def test_si_ambos_coinciden_corresponde():
+    modelo = ModeloFalso(_doc(corresponde_al_expediente=True),
+                         veredicto=Veredicto(corresponde=True))
+    r = extractor.extraer(PDF, modelo=modelo, expediente=LIMPIEZA)
+    assert r.propuesta.corresponde_al_expediente is True
+    assert r.propuesta.motivo_discrepancia == ""
+
+
+def test_si_falla_el_paso_aislado_se_usa_la_comparacion_lexica():
+    modelo = ModeloFalso(_doc(), error_veredicto=TimeoutError("sin red"))
+    assert extractor.extraer(PDF, modelo=modelo, expediente=LUMINARIAS
+                             ).propuesta.corresponde_al_expediente is False
+    assert extractor.extraer(PDF, modelo=modelo, expediente=LIMPIEZA
+                             ).propuesta.corresponde_al_expediente is True
+
+
+def test_sin_objeto_no_se_puede_juzgar():
+    modelo = ModeloFalso(_doc(objeto="", corresponde_al_expediente=True),
+                         veredicto=Veredicto(corresponde=True))
+    r = extractor.extraer(PDF, modelo=modelo, expediente=LIMPIEZA)
+    assert r.propuesta.corresponde_al_expediente is None
+
+
+def test_el_objeto_se_acota_antes_de_compararlo():
+    modelo = ModeloFalso(_doc(objeto="limpieza " * 200), veredicto=Veredicto(corresponde=True))
+    r = extractor.extraer(PDF, modelo=modelo, expediente=LIMPIEZA)
+    assert len(r.propuesta.objeto) <= extractor.LARGO_OBJETO
+
+
+def test_el_respaldo_tambien_se_contrasta_con_el_expediente(monkeypatch):
+    monkeypatch.setattr(config, "leer", lambda nombre, defecto=None: defecto)
+    luminarias = extractor.extraer(PDF, expediente=LUMINARIAS)
+    limpieza = extractor.extraer(PDF, expediente=LIMPIEZA)
+    assert luminarias.origen == limpieza.origen == "respaldo"
+    assert luminarias.propuesta.corresponde_al_expediente is False
+    assert limpieza.propuesta.corresponde_al_expediente is True
+    sin_expediente = extractor.extraer(PDF)
+    assert sin_expediente.propuesta.corresponde_al_expediente is None
+
+
+OBJETOS = ["Adquisición de luminarias LED", "Adquisición de útiles de escritorio",
+           "Adquisición de materiales de ferretería",
+           "Servicio de limpieza y desinfección de ambientes"]
+
+
+def test_comparacion_lexica_acierta_la_matriz_y_nunca_da_un_falso_corresponde():
+    for i, objeto in enumerate(OBJETOS):
+        for j, descripcion in enumerate(OBJETOS):
+            assert extractor.similitud_lexica(objeto, descripcion) is (i == j), (objeto, descripcion)
+    # Reformulado: puede fallar hacia «no corresponde», pero no al revés.
+    assert not extractor.similitud_lexica("Compra de papelería y útiles de oficina", OBJETOS[0])
+    assert not extractor.similitud_lexica("", OBJETOS[0])
+
+
+def test_esfuerzo_de_razonamiento_solo_en_modelos_que_lo_admiten(monkeypatch):
+    def entorno(**valores):
+        monkeypatch.setattr(config, "leer", lambda nombre, defecto=None: valores.get(nombre, defecto))
+
+    entorno(LLM_PROVIDER="openai", OPENAI_API_KEY="clave-de-prueba")
+    assert extractor.crear_modelo("minimal").reasoning_effort == "minimal"  # gpt-5-nano
+    assert extractor.crear_modelo().reasoning_effort is None
+    entorno(LLM_PROVIDER="openai", OPENAI_API_KEY="clave-de-prueba", LLM_MODEL="gpt-4o")
+    assert extractor.crear_modelo("minimal").reasoning_effort is None
+
+
+# --- Límites: páginas, texto, filas y descripciones (avisan, no recortan en silencio) -----
+
+def _pdf_de_paginas(n):
+    reportlab = pytest.importorskip("reportlab.pdfgen.canvas")
+    buf = io.BytesIO()
+    c = reportlab.Canvas(buf)
+    for i in range(1, n + 1):
+        c.drawString(72, 700, f"Pagina {i} de terminos de referencia")
+        c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def test_solo_se_leen_las_primeras_paginas_y_se_avisa():
+    pdf = _pdf_de_paginas(extractor.PAGINAS_MAXIMAS + 5)
+    modelo = ModeloFalso(PROPUESTA)
+    r = extractor.extraer(pdf, modelo=modelo)
+    assert any(f"primeras {extractor.PAGINAS_MAXIMAS} de {extractor.PAGINAS_MAXIMAS + 5}" in a
+               for a in r.advertencias)
+    enviado = modelo.mensajes[1][1]
+    assert f"Pagina {extractor.PAGINAS_MAXIMAS} " in enviado
+    assert f"Pagina {extractor.PAGINAS_MAXIMAS + 1} " not in enviado
+
+
+def test_un_pdf_corto_no_genera_advertencias():
+    r = extractor.extraer(PDF, modelo=ModeloFalso(PROPUESTA))
+    assert r.advertencias == ()
+
+
+def test_el_truncado_del_texto_se_avisa(monkeypatch):
+    monkeypatch.setattr(extractor, "CARACTERES_MAXIMOS", 50)
+    r = extractor.extraer(PDF, modelo=ModeloFalso(PROPUESTA))
+    assert any("primeros 50" in a for a in r.advertencias)
+
+
+def test_mas_de_50_entregables_y_descripciones_largas_se_acotan_con_aviso():
+    muchos = PropuestaIA(entregables=[EntregableIA(numero=i, descripcion=f"Entregable {i}")
+                                      for i in range(1, 61)])
+    r = extractor.extraer(PDF, modelo=ModeloFalso(muchos))
+    assert len(r.propuesta.entregables) == 50
+    assert any("60 entregables" in a for a in r.advertencias)
+
+    largas = PropuestaIA(entregables=[EntregableIA(numero=1, descripcion="x" * 1000),
+                                      EntregableIA(numero=2, descripcion="corta")])
+    r = extractor.extraer(PDF, modelo=ModeloFalso(largas))
+    assert len(r.propuesta.entregables[0].descripcion) == 300
+    assert r.propuesta.entregables[0].descripcion.endswith("…")
+    assert r.propuesta.entregables[1].descripcion == "corta"
+    assert any("1 descripciones" in a for a in r.advertencias)
+
+
+def test_el_respaldo_no_trae_advertencias_de_lectura(monkeypatch):
+    monkeypatch.setattr(config, "leer", lambda nombre, defecto=None: defecto)
+    assert extractor.extraer(PDF).advertencias == ()
+
+
+def test_las_descripciones_largas_no_se_pueden_guardar():
+    from conforme import entregables
+
+    _, errores = entregables.validar([{"numero": 1, "descripcion": "x" * 301}])
+    assert errores and "300 caracteres" in errores[0]
+    assert entregables.validar([{"numero": 1, "descripcion": "x" * 300}])[1] == []
+
+
+# --- Cupo de lecturas con IA (repositorio) -------------------------------------------
+
+def test_solo_una_propuesta_pendiente_por_expediente(sesion_sembrada):
+    s = sesion_sembrada
+    actor, exp = _preparar(s)
+    ide = _proponer(s, actor, exp)
+    with pytest.raises(ErrorValidacion, match="propuesta pendiente"):
+        repositorio.comprobar_cupo_ia(s, actor, exp["id"])
+    with pytest.raises(ErrorValidacion, match="propuesta pendiente"):
+        _proponer(s, actor, exp)
+    repositorio.rechazar_extraccion(s, actor, ide)
+    repositorio.comprobar_cupo_ia(s, actor, exp["id"])  # ya no bloquea
+    _proponer(s, actor, exp)
+
+
+def test_tope_de_lecturas_por_persona_y_hora(sesion_sembrada, monkeypatch):
+    s = sesion_sembrada
+    monkeypatch.setattr(repositorio, "LECTURAS_IA_POR_HORA", 2)
+    actor, exp = _preparar(s)
+    for _ in range(2):
+        repositorio.rechazar_extraccion(s, actor, _proponer(s, actor, exp))
+    with pytest.raises(ErrorValidacion, match="máximo de 2 lecturas"):
+        repositorio.comprobar_cupo_ia(s, actor, exp["id"])
+    otro = actor_de(s, "inf1")  # otra persona: su cupo es propio
+    assert otro.persona_id != actor.persona_id
+    repositorio.comprobar_cupo_ia(s, otro, exp["id"])
+
+
+def test_lecturas_de_hace_mas_de_una_hora_no_cuentan(sesion_sembrada, monkeypatch):
+    s = sesion_sembrada
+    monkeypatch.setattr(repositorio, "LECTURAS_IA_POR_HORA", 1)
+    actor, exp = _preparar(s)
+    repositorio.rechazar_extraccion(s, actor, _proponer(s, actor, exp))
+    s.execute(text("UPDATE extraccion_ia SET creado_en = now() - interval '2 hours'"))
+    repositorio.comprobar_cupo_ia(s, actor, exp["id"])
+
+
+def test_las_advertencias_de_lectura_se_guardan_con_la_propuesta(sesion_sembrada):
+    s = sesion_sembrada
+    actor, exp = _preparar(s)
+    repositorio.registrar_propuesta_ia(
+        s, actor, exp["id"], archivo_nombre="t.pdf", archivo_sha256="b" * 64,
+        propuesta=PROPUESTA, origen="modelo", aviso=None, advertencias=("Solo 40 de 50 páginas",))
+    [x] = repositorio.listar_extracciones(s, actor, exp["id"])
+    assert x["resultado"]["advertencias"] == ["Solo 40 de 50 páginas"]
+    assert PropuestaIA.model_validate(x["resultado"]).entregables  # sigue siendo válido

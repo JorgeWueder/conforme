@@ -122,4 +122,5 @@ def test_siembra_en_base(sesion_sembrada):
     assert contar("pago") == 207
     assert contar("anomalia_sembrada") == 28
     assert contar("alerta") == 28
-    assert contar("bitacora") == len(c["eventos"]) + 28  # + una "alerta.generada" por alerta
+    # + una "alerta.generada" por alerta + una "conformidad.sellada" por conformidad
+    assert contar("bitacora") == len(c["eventos"]) + 28 + 246

@@ -170,9 +170,14 @@ def sembrar(sesion: Session, conjunto: dict, password: str) -> dict:
 
     eventos_alerta = motor.sincronizar(sesion, ts_de=ts_de, registrar=False)
     eventos.extend(eventos_alerta)
+    # El sello se coloca 2 s después de la conformidad (las alertas van a +1 s), así la
+    # bitácora sigue en orden cronológico.
+    pendientes, eventos_sello = repositorio.preparar_sellado(
+        sesion, ts_de=lambda c: c.registrada_en + 2 * segundo)
+    eventos.extend(eventos_sello)
     eventos.sort(key=lambda e: e["ts"])  # orden estable: a igual momento, el de llegada
     bitacora.registrar_lote(sesion, eventos)
-    sellados = repositorio.sellar_pendientes(sesion)
+    sellados = repositorio.asignar_sellos(sesion, pendientes)
 
     return {
         "areas": len(areas), "personas": len(personas), "proveedores": len(proveedores),

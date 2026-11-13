@@ -5,8 +5,9 @@ import streamlit as st
 from conforme import db, normativa, repositorio, sello
 from conforme.errores import ErrorValidacion
 from conforme.interfaz import (
-    AVISO_NO_BLOQUEA, ETIQUETAS_ACCION, ETIQUETAS_ESTADO, ETIQUETAS_SEMAFORO,
-    ETIQUETAS_SEVERIDAD, actor_actual, fecha, fecha_hora, mostrar_aviso_pendiente, soles,
+    AVISO_NO_BLOQUEA, ETIQUETAS_ESTADO, ETIQUETAS_SEMAFORO,
+    ETIQUETAS_SEVERIDAD, actor_actual, fecha, html_linea_de_tiempo, md,
+    mostrar_aviso_pendiente, origen_actual, soles,
 )
 from conforme.modelos import ESTADO_CERRADA, ROL_AREA_USUARIA, ROL_AUDITOR, ROL_TESORERIA
 from conforme.permisos import PermisoDenegado
@@ -35,7 +36,7 @@ if exp is None:
 
 st.page_link("paginas/expedientes.py", label="Volver a Expedientes", icon=":material/arrow_back:")
 st.title(f"{exp['codigo']} · {ETIQUETAS_SEMAFORO[exp['semaforo']]}")
-st.subheader(exp["descripcion"])
+st.subheader(md(exp["descripcion"]))
 mostrar_aviso_pendiente()
 
 limite = normativa.fecha_limite(exp["fecha_orden"], exp["plazo_dias"])  # POR VERIFICAR
@@ -45,10 +46,10 @@ izquierda.markdown(
     f"**Monto:** {soles(exp['monto'])}  \n"
     f"**Plazo:** {exp['plazo_dias']} días  \n"
     f"**Tipo:** {exp['tipo'].capitalize()}  \n"
-    f"**Área usuaria:** {exp['area']}  \n"
-    f"**Solicitante:** {exp['solicitante']}  \n"
-    f"**Proveedor:** {exp['proveedor']} (RUC {exp['proveedor_ruc']})  \n"
-    f"**Orden:** {exp['numero_orden']}"
+    f"**Área usuaria:** {md(exp['area'])}  \n"
+    f"**Solicitante:** {md(exp['solicitante'])}  \n"
+    f"**Proveedor:** {md(exp['proveedor'])} (RUC {md(exp['proveedor_ruc'])})  \n"
+    f"**Orden:** {md(exp['numero_orden'])}"
 )
 derecha.markdown(
     f"**Requerimiento:** {fecha(exp['fecha_requerimiento'])}  \n"
@@ -104,9 +105,9 @@ for a in alertas:
             f"severidad {ETIQUETAS_SEVERIDAD[a['severidad']].lower()} · "
             f"{ETIQUETAS_ESTADO[a['estado']]}"
         )
-        st.write(a["explicacion"])
+        st.write(md(a["explicacion"]))
         if a["implicado"]:
-            st.caption(f"Persona implicada: {a['implicado']}")
+            st.caption(f"Persona implicada: {md(a['implicado'])}")
         if st.button("Revisar en la bandeja", key=f"alerta_{a['id']}",
                      icon=":material/notification_important:"):
             st.session_state["alerta_id"] = a["id"]
@@ -127,17 +128,22 @@ st.divider()
 st.subheader("Entregables y conformidad")
 if conformidad:
     st.markdown(
-        f"**Conformidad registrada** por {conformidad['conformante']} · "
+        f"**Conformidad registrada** por {md(conformidad['conformante'])} · "
         f"fecha {fecha(conformidad['fecha_conformidad'])} · "
         f"penalidad aplicada {soles(conformidad['penalidad_aplicada'])}"
     )
     if conformidad["observaciones"]:
-        st.caption(f"Observaciones: {conformidad['observaciones']}")
+        st.caption(f"Observaciones: {md(conformidad['observaciones'])}")
     if conformidad["codigo_sello"]:
-        url_sello = sello.url_verificacion(conformidad["codigo_sello"])
+        origen = origen_actual()
+        base_sello = sello.url_base(origen)
+        url_sello = sello.url_verificacion(conformidad["codigo_sello"], base_sello)
         with st.expander("Sello de conformidad (QR)", icon=":material/qr_code_2:"):
+            aviso_url = sello.aviso_url_base(origen)
+            if aviso_url:
+                st.warning(aviso_url, icon=":material/link_off:")
             columna_qr, columna_datos = st.columns([1, 2])
-            columna_qr.image(sello.png_qr(conformidad["codigo_sello"]), width=180)
+            columna_qr.image(sello.png_qr(conformidad["codigo_sello"], base_sello), width=180)
             columna_datos.markdown(
                 f"**Código:** `{conformidad['codigo_sello']}`  \n"
                 f"**Registro de bitácora sellado:** n.º {conformidad['sello_bitacora_id']}  \n"
@@ -147,7 +153,7 @@ if conformidad:
             columna_datos.download_button(
                 "Descargar sello (PNG)",
                 sello.png_sello(conformidad["codigo_sello"], exp["codigo"],
-                                conformidad["sello_hash"]),
+                                conformidad["sello_hash"], base_sello),
                 file_name=f"sello-{exp['codigo']}.png", mime="image/png",
                 icon=":material/download:",
             )
@@ -166,16 +172,16 @@ ver_evidencias = hay_evidencias and st.toggle("Mostrar evidencias")
 for e in entregables:
     with st.container(border=True):
         texto_estado, color_estado = _estado_entregable(e)
-        st.markdown(f"**{e['numero']}. {e['descripcion']}**")
+        st.markdown(f"**{e['numero']}. {md(e['descripcion'])}**")
         st.badge(texto_estado, color=color_estado)
         if e["observacion"]:
-            st.caption(f"Observación: {e['observacion']}")
+            st.caption(f"Observación: {md(e['observacion'])}")
         if e["cumplido"] is not None:
             if not e["evidencias"]:
                 st.caption(":material/warning: No hay ningún archivo adjunto.")
             for evidencia in e["evidencias"]:
                 st.caption(
-                    f"Evidencia: {evidencia['nombre_archivo']} · "
+                    f"Evidencia: {md(evidencia['nombre_archivo'])} · "
                     f"{evidencia['tamano'] / 1024:.1f} KB · SHA-256 `{evidencia['sha256'][:16]}…`"
                 )
                 if ver_evidencias:
@@ -203,7 +209,7 @@ elif alertas_sin_cerrar:
 for p in pagos:
     st.markdown(
         f"- {fecha(p['fecha_pago'])} · {soles(p['monto'])} · penalidad descontada "
-        f"{soles(p['penalidad_descontada'])} · registrado por {p['registrado_por']}"
+        f"{soles(p['penalidad_descontada'])} · registrado por {md(p['registrado_por'])}"
     )
 
 if actor.rol == ROL_TESORERIA:
@@ -243,15 +249,4 @@ st.divider()
 st.subheader("Línea de tiempo")
 st.caption("Quién hizo qué, cuándo y con qué documento. Proviene de la bitácora encadenada.")
 
-for e in eventos:
-    with st.container(border=True):
-        st.markdown(
-            f"**{ETIQUETAS_ACCION.get(e['accion'], e['accion'])}** · "
-            f"{fecha_hora(e['ts'])} · {e['actor'] or 'Sistema'}"
-        )
-        if e["detalle"].get("resumen"):
-            st.write(e["detalle"]["resumen"])
-        if e["documento_sha256"]:
-            documento = e["detalle"].get("documento", "documento")
-            st.caption(f"Documento: {documento} · SHA-256 `{e['documento_sha256'][:16]}…`")
-        st.caption(f"Registro de bitácora n.º {e['id']}")
+st.markdown(html_linea_de_tiempo(eventos), unsafe_allow_html=True)
