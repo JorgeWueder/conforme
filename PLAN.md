@@ -17,8 +17,10 @@
 - [x] Navegador, `tes1` (tesorería): ve los 300; no tiene acceso a Bitácora.
 - [x] Navegador, `oci1` (auditor): "Verificar integridad" → íntegra (600); tras un `UPDATE` manual al registro 499 → "alterada en el registro n.º 499"; restaurado → íntegra.
 - [x] `/verificar` abre sin sesión (marcador de posición hasta F3); `/bitacora` sin sesión lleva al login.
-- [ ] **Despliegue con enlace público: NO hecho.**
-- [ ] **Nada probado aún contra Neon.** Todo lo anterior corrió contra un Postgres 16 desechable en Docker (contenedor `conforme-pruebas`, puerto 55432), porque todavía no hay URL de Neon. Al poner las URL de Neon en `.env` hay que repetir migrar, sembrar y `pytest`.
+- [x] Neon (Postgres 18, una sola base `neondb`): migrar, sembrar (7 s) y verificar cadena → íntegra, 600 registros, mismo hash final que en local. Login y lista de 300 expedientes probados en el navegador contra Neon.
+- [ ] **Despliegue con enlace público: NO hecho** (falta repositorio en GitHub y Streamlit Cloud).
+- [ ] **`pytest` NO se ha corrido contra Neon**: solo hay una base en Neon y las pruebas borran el esquema. Siguen corriendo contra el Postgres 16 desechable en Docker (`conforme-pruebas`, puerto 55432). Falta crear las ramas `test` y `demo` y poner `DATABASE_URL_TEST`.
+- Nota: la app usa `DATABASE_URL` (conexión directa). `.env` también trae `DATABASE_URL_POOLED`; para el despliegue conviene usar esa como `DATABASE_URL` en los secretos de Streamlit.
 
 ### Cambios respecto al plan original
 - Los scripts se ejecutan como módulos: `python -m scripts.migrar`, `python -m scripts.sembrar [--reiniciar]`.

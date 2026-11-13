@@ -101,7 +101,9 @@ def registrar_lote(sesion: Session, eventos: list[dict]) -> None:
         fila["hash"] = calcular_hash(**fila)
         anterior = fila["hash"]
         filas.append(fila)
-    sesion.execute(insert(Bitacora), filas)
+    # Una sentencia por bloque: contra una base remota, fila a fila es muy lento.
+    for i in range(0, len(filas), 500):
+        sesion.execute(insert(Bitacora).values(filas[i:i + 500]))
 
 
 def registrar(sesion: Session, **evento) -> None:
