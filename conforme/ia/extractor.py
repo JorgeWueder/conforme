@@ -26,7 +26,7 @@ CARACTERES_MAXIMOS = 30_000  # lo que se envía al modelo
 RESPALDO = Path(__file__).resolve().parent.parent.parent / "datos" / "respaldo_ia"
 PDF_EJEMPLO = RESPALDO / "terminos_referencia.pdf"
 RESPALDO_JSON = RESPALDO / "terminos_referencia.json"
-MODELO_POR_DEFECTO = {"anthropic": "claude-sonnet-5-5", "openai": "gpt-4o"}
+MODELO_POR_DEFECTO = {"anthropic": "claude-sonnet-5-5", "openai": "gpt-5-nano"}
 
 INSTRUCCIONES = (
     "Eres un asistente que lee términos de referencia de una contratación pública peruana. "
