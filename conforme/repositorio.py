@@ -494,7 +494,7 @@ def revisiones_de_alerta(sesion: Session, actor: Actor, alerta_id: int) -> list[
     """Descargos, cierres y escalamientos de una alerta, en orden."""
     _alerta_en_alcance(sesion, actor, alerta_id)
     filas = sesion.execute(
-        select(AlertaRevision.tipo, _NOMBRE_PERSONA.label("autor"),
+        select(AlertaRevision.id, AlertaRevision.tipo, _NOMBRE_PERSONA.label("autor"),
                AlertaRevision.texto, AlertaRevision.creado_en)
         .join(Persona, Persona.id == AlertaRevision.autor_id)
         .where(AlertaRevision.alerta_id == alerta_id)

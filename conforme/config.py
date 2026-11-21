@@ -1,7 +1,4 @@
-"""Configuración leída del entorno (o de st.secrets en Streamlit Cloud).
-
-Nada sensible se escribe en el repositorio.
-"""
+"""Configuración del servidor leída del entorno y del archivo .env."""
 import os
 
 from dotenv import load_dotenv
@@ -10,17 +7,7 @@ load_dotenv()
 
 
 def leer(nombre: str, defecto: str | None = None) -> str | None:
-    valor = os.environ.get(nombre)
-    if valor:
-        return valor
-    try:
-        import streamlit as st
-
-        if nombre in st.secrets:
-            return str(st.secrets[nombre])
-    except Exception:
-        pass
-    return defecto
+    return os.environ.get(nombre) or defecto
 
 
 def normalizar_url(url: str) -> str:
@@ -34,7 +21,5 @@ def normalizar_url(url: str) -> str:
 def url_base_datos() -> str:
     url = leer("DATABASE_URL")
     if not url:
-        raise RuntimeError(
-            "Falta DATABASE_URL. Defínela en .env (local) o en los secretos de Streamlit."
-        )
+        raise RuntimeError("Falta DATABASE_URL. Defínela en .env o en el entorno del servidor.")
     return normalizar_url(url)

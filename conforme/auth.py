@@ -37,7 +37,19 @@ def autenticar(sesion: Session, username: str, password: str) -> Actor | None:
     ).first()
     if fila is None or not verificar_password(password, fila.Usuario.password_hash):
         return None
-    usuario, persona = fila.Usuario, fila.Persona
+    return _actor(fila.Usuario, fila.Persona)
+
+
+def actor_por_id(sesion: Session, usuario_id: int) -> Actor | None:
+    fila = sesion.execute(
+        select(Usuario, Persona)
+        .join(Persona, Persona.id == Usuario.persona_id)
+        .where(Usuario.id == usuario_id)
+    ).first()
+    return _actor(fila.Usuario, fila.Persona) if fila else None
+
+
+def _actor(usuario: Usuario, persona: Persona) -> Actor:
     return Actor(
         usuario_id=usuario.id,
         persona_id=persona.id,

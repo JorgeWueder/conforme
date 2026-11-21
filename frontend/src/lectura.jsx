@@ -1,0 +1,163 @@
+import { useState } from "react";
+import { Download, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { api, useAccion, useDatos } from "./api";
+import { capitalizar, fechaHora, rutaExpediente } from "./dominio";
+import { Aviso, AvisoNavegacion, Campo, Carga, Encabezado, EstadoAccion, Volver } from "./ui";
+
+function Propuesta({ pendiente, expediente, recargar }) {
+  const [filas, setFilas] = useState(() => pendiente.resultado.entregables.map((item, id) => ({ id, descripcion: item.descripcion })));
+  const [confirmado, setConfirmado] = useState(false);
+  const accion = useAccion();
+  const navegar = useNavigate();
+  const { resultado, avisos_coherencia: avisos } = pendiente;
+  const discrepancia = avisos.some(([nivel]) => nivel === "error");
+
+  function aprobar(evento) {
+    evento.preventDefault();
+    if (discrepancia && !confirmado) return;
+    accion.ejecutar(async () => {
+      const { agregados } = await api(`/lecturas/${pendiente.id}/aprobar`, {
+        method: "POST", data: { descripciones: filas.map((fila) => fila.descripcion) },
+      });
+      navegar(rutaExpediente(expediente.id), { state: { aviso: `Propuesta aprobada. Entregables añadidos: ${agregados}.` } });
+    });
+  }
+
+  function rechazar(evento) {
+    evento.preventDefault();
+    const datos = Object.fromEntries(new FormData(evento.currentTarget));
+    accion.ejecutar(async () => {
+      await api(`/lecturas/${pendiente.id}/rechazar`, { method: "POST", data: datos });
+      recargar();
+    });
+  }
+
+  return (
+    <section className="seccion">
+      <h2>Revisar propuesta</h2>
+      <p className="secundario">Documento «{pendiente.archivo_nombre}» · {fechaHora(pendiente.creado_en)}</p>
+      {pendiente.origen === "respaldo"
+        ? <Aviso tipo="advertencia"><strong>Resultado de respaldo.</strong> Se muestra un ejemplo guardado. {pendiente.aviso}</Aviso>
+        : <Aviso>El modelo generó esta propuesta. Revisa cada fila.</Aviso>}
+      {resultado.objeto && <div className="panel ficha">
+        <p><strong>Objeto del documento</strong> · {resultado.objeto}</p>
+        <p><strong>Objeto del expediente</strong> · {expediente.descripcion}</p>
+      </div>}
+      {resultado.advertencias?.map((aviso, i) => <Aviso tipo="advertencia" key={i}>{aviso}</Aviso>)}
+      {avisos.map(([nivel, aviso], i) => <Aviso tipo={nivel === "error" ? "error" : "advertencia"} key={i}>{aviso}</Aviso>)}
+      <EstadoAccion accion={accion} />
+      <form className="panel formulario" onSubmit={aprobar}>
+        <h3>Entregables propuestos</h3>
+        <small>Se añadirán a los entregables existentes con numeración correlativa.</small>
+        {filas.map((fila, i) => (
+          <div className="fila-editor fila-editor-ia" key={fila.id}>
+            <Campo titulo={`Entregable ${i + 1}`}>
+              <input value={fila.descripcion} onChange={(e) => setFilas(filas.map((f) =>
+                f.id === fila.id ? { ...f, descripcion: e.target.value } : f))} />
+            </Campo>
+            <button type="button" className="icono-boton" aria-label={`Quitar entregable ${i + 1}`}
+              onClick={() => setFilas(filas.filter((f) => f.id !== fila.id))}><Trash2 size={17} /></button>
+          </div>
+        ))}
+        <div><button type="button" onClick={() => setFilas([...filas, { id: Math.max(-1, ...filas.map((f) => f.id)) + 1, descripcion: "" }])}>
+          <Plus size={16} /> Añadir fila</button></div>
+        {(resultado.plazo_dias || resultado.penalidades?.length > 0) && <div className="ficha documento">
+          <h3>Otros datos del documento (informativos)</h3>
+          {resultado.plazo_dias && <p>Plazo según el documento: {resultado.plazo_dias} días calendario. El expediente tiene {expediente.plazo_dias}.</p>}
+          {resultado.penalidades?.length > 0 && <ul>{resultado.penalidades.map((texto, i) => <li key={i}>{texto}</li>)}</ul>}
+        </div>}
+        {discrepancia && <label className="casilla"><input type="checkbox" checked={confirmado}
+          onChange={(e) => setConfirmado(e.target.checked)} /> He revisado la discrepancia y quiero añadir estos entregables.</label>}
+        <div><button className="primario" disabled={accion.pendiente || (discrepancia && !confirmado)}>Aprobar y añadir al expediente</button></div>
+      </form>
+      <form className="panel formulario" onSubmit={rechazar}>
+        <Campo titulo="Motivo del rechazo (opcional)"><input name="motivo" /></Campo>
+        <div><button disabled={accion.pendiente}>Rechazar propuesta</button></div>
+      </form>
+    </section>
+  );
+}
+
+function LecturasDelExpediente({ id }) {
+  const recurso = useDatos(`/expedientes/${id}/lecturas`);
+  const accion = useAccion();
+  const [archivo, setArchivo] = useState(null);
+  const [rechazada, setRechazada] = useState(false);
+  if (!recurso.datos) return <Carga recurso={recurso} />;
+  const { expediente, entregables, lecturas, hay_ejemplo } = recurso.datos;
+  const pendiente = lecturas.find((lectura) => lectura.estado === "propuesta");
+  const historial = lecturas.filter((lectura) => lectura.estado !== "propuesta");
+
+  function leer(evento) {
+    evento.preventDefault();
+    const form = evento.currentTarget;
+    const datos = new FormData(form);
+    setRechazada(false);
+    accion.ejecutar(async () => {
+      await api(`/expedientes/${id}/lecturas`, { method: "POST", data: datos });
+      form.reset();
+      setArchivo(null);
+      recurso.recargar();
+    });
+  }
+
+  return (
+    <>
+      <div className="panel ficha">
+        <Link to={rutaExpediente(id)}>{expediente.codigo} · {capitalizar(expediente.tipo)} · Plazo de {expediente.plazo_dias} días</Link>
+        <p>{expediente.descripcion}</p>
+        <small>Entregables existentes: {entregables.map((e) => `${e.numero}. ${e.descripcion}`).join("; ") || "ninguno"}.</small>
+      </div>
+      <form className="panel formulario" onSubmit={leer}>
+        <div className="fila-titulo">
+          <h2>Subir documento</h2>
+          {hay_ejemplo && <a className="boton" href="/api/ia/ejemplo"><Download size={16} /> Descargar PDF de ejemplo</a>}
+        </div>
+        {pendiente && <Aviso>Hay una propuesta pendiente. Revísala antes de leer otro documento.</Aviso>}
+        <Campo titulo="Términos de referencia (PDF)">
+          <input type="file" name="archivo" accept=".pdf,application/pdf" required disabled={accion.pendiente || Boolean(pendiente)}
+            onChange={(e) => setArchivo(e.target.files[0] ?? null)} />
+        </Campo>
+        <EstadoAccion accion={accion} />
+        <div><button className="primario" disabled={!archivo || Boolean(pendiente) || accion.pendiente}>
+          <Sparkles size={17} />{accion.pendiente ? "Leyendo el documento…" : "Leer documento"}</button></div>
+      </form>
+      {rechazada && <Aviso tipo="exito">Propuesta rechazada. No se añadió ningún entregable.</Aviso>}
+      {pendiente && <Propuesta key={pendiente.id} pendiente={pendiente} expediente={expediente} recargar={() => {
+        setRechazada(true);
+        recurso.recargar();
+      }} />}
+      {historial.length > 0 && <details className="panel desplegable">
+        <summary>Historial de lecturas ({historial.length})</summary>
+        <ul className="lista-simple">{historial.map((lectura) =>
+          <li key={lectura.id}>{fechaHora(lectura.creado_en)} · «{lectura.archivo_nombre}» · {lectura.origen} · <strong>{lectura.estado}</strong></li>)}</ul>
+      </details>}
+    </>
+  );
+}
+
+export function LecturaIA() {
+  const recurso = useDatos("/expedientes");
+  const [params, setParams] = useSearchParams();
+  const elegibles = recurso.datos?.filter((e) => !e.tiene_conformidad);
+  const elegido = elegibles?.find((e) => String(e.id) === params.get("expediente")) ?? elegibles?.[0];
+  return (
+    <>
+      <Encabezado titulo="Lectura con IA" descripcion="Sube términos de referencia en PDF con texto. Revisa la propuesta antes de añadir entregables.">
+        <Volver to={elegido ? rutaExpediente(elegido.id) : "/expedientes"}>{elegido ? "Volver al expediente" : "Expedientes"}</Volver>
+      </Encabezado>
+      <AvisoNavegacion />
+      {elegibles ? elegido ? <>
+        <div className="panel">
+          <Campo titulo="Expediente">
+            <select value={elegido.id} onChange={(e) => setParams({ expediente: e.target.value })}>
+              {elegibles.map((e) => <option key={e.id} value={e.id}>{e.codigo} · {e.descripcion.slice(0, 85)}</option>)}
+            </select>
+          </Campo>
+        </div>
+        <LecturasDelExpediente key={elegido.id} id={elegido.id} />
+      </> : <Aviso>No hay expedientes de tu área sin conformidad.</Aviso> : <Carga recurso={recurso} />}
+    </>
+  );
+}

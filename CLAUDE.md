@@ -4,8 +4,8 @@ MVP de hackathon universitaria (entrega 25 nov 2026). Herramienta web de alerta 
 
 Lee `PLAN.md` primero: tiene el plan aprobado, el estado por fase y lo pendiente.
 
-## Stack (no cambiar sin preguntar)
-Python 3.11, Streamlit multipágina (`st.navigation`), PostgreSQL con SQLAlchemy 2 + psycopg 3, migraciones SQL numeradas con ejecutor propio, Faker, pytest. Despliegue previsto: Streamlit Community Cloud + Neon (ramas dev, test, demo).
+## Stack
+React con Vite, API FastAPI en Python 3.11, PostgreSQL con SQLAlchemy 2 y psycopg 3, migraciones SQL numeradas, Faker y pytest. Uvicorn sirve la compilación de React y la API. Las ramas dev, test y demo pueden seguir en Neon.
 
 ## Comandos (PowerShell, desde la raíz)
 ```
@@ -13,13 +13,16 @@ Python 3.11, Streamlit multipágina (`st.navigation`), PostgreSQL con SQLAlchemy
 .\.venv\Scripts\python.exe -m scripts.sembrar            # --reiniciar borra y recarga
 .\.venv\Scripts\python.exe -m scripts.medir_deteccion    # alertas vs. anomalías sembradas
 .\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m streamlit run app.py
+npm --prefix frontend ci
+npm --prefix frontend run build
+.\.venv\Scripts\python.exe -m uvicorn app:app --port 8501
 ```
 Configuración en `.env` (ver `.env.example`). `DATABASE_URL_TEST` debe ser una base dedicada: las pruebas borran su esquema.
 
 ## Arquitectura
-- `app.py`: navegación por rol y banner "Datos sintéticos". Páginas en `paginas/`.
-- `conforme/repositorio.py`: **única** puerta a los datos. Toda función recibe `actor` y aplica `conforme/permisos.py` en la consulta. Las páginas no usan SQLAlchemy.
+- `frontend/src/`: páginas React, navegación por rol y banner «Datos sintéticos».
+- `app.py` y `conforme/api.py`: servidor, sesión firmada y rutas HTTP.
+- `conforme/repositorio.py`: acceso al dominio y a los datos con `actor` y los filtros de `conforme/permisos.py`.
 - `conforme/bitacora.py`: bitácora encadenada por hash (`registrar`, `registrar_lote`, `verificar_cadena`). La línea de tiempo de un expediente es la bitácora filtrada.
 - `conforme/reglas/`: una función pura por regla (R1–R5), `motor.py` (evalúa y sincroniza la tabla `alerta`, idempotente) y `semaforo.py`. Parámetros normativos en `conforme/normativa.py`.
 - `datos/generador.py`: datos con semilla fija, sin tocar la base. `scripts/sembrar.py` los inserta.

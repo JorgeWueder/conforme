@@ -5,3 +5,5 @@ __pycache__/
 .env
 .streamlit/secrets.toml
 .alterar_demo.json
+node_modules/
+frontend/dist/

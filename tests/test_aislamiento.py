@@ -6,9 +6,10 @@ RAIZ = Path(__file__).resolve().parent.parent
 PROHIBIDO = ("anomalia_sembrada", "AnomaliaSembrada", "anomalias_sembradas")
 
 
-def test_nada_dentro_de_conforme_ni_de_las_paginas_menciona_las_anomalias_sembradas():
-    archivos = [*(RAIZ / "conforme").rglob("*.py"), *(RAIZ / "paginas").rglob("*.py"),
-                RAIZ / "app.py"]
+def test_la_api_y_el_frontend_no_mencionan_las_anomalias_sembradas():
+    frontend = RAIZ / "frontend" / "src"
+    archivos = [*(RAIZ / "conforme").rglob("*.py"), *frontend.rglob("*.js"),
+                *frontend.rglob("*.jsx"), RAIZ / "app.py"]
     assert len(archivos) > 15
     culpables = [str(a.relative_to(RAIZ)) for a in archivos
                  if any(p in a.read_text(encoding="utf-8") for p in PROHIBIDO)]

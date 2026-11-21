@@ -1,5 +1,11 @@
 # Plan — MVP "Conforme" (hackathon, entrega 25 nov 2026)
 
+## Migración a React
+
+La interfaz del repositorio se sirve con React y Vite. FastAPI reutiliza el repositorio, los permisos, las reglas R1–R5 y el sello de conformidad en Python. Las instrucciones vigentes están en `README.md`. Los apartados por fase documentan la implementación y el despliegue anteriores en Streamlit.
+
+Verificación local del 21 nov 2026. Pasaron 208 pruebas contra PostgreSQL desechable. En Chrome se comprobaron los tres roles, el alta manual y por CSV, los pagos con alerta, los descargos y revisiones, la conformidad con PDF, el sello público y la integridad de la bitácora. La lectura con IA se comprobó con el resultado de respaldo y revisión humana.
+
 ## Estado (actualizado al cerrar F4, 13 nov 2026)
 
 | Fase | Estado |

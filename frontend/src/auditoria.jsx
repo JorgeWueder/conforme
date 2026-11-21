@@ -1,0 +1,160 @@
+import { useState } from "react";
+import { ExternalLink, ShieldCheck } from "lucide-react";
+import { Link, useSearchParams } from "react-router";
+import { api, useAccion, useDatos } from "./api";
+import { ACCIONES, AVISO_ALERTAS, ESTADOS, REVISIONES, SEVERIDADES, fechaHora, rutaExpediente } from "./dominio";
+import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Filtros, Indicador, Tabla } from "./ui";
+
+function RevisionAlerta({ alerta, reglas, actor, recargar }) {
+  const recurso = useDatos(`/alertas/${alerta.id}/revisiones`);
+  const accion = useAccion();
+  const implicado = alerta.persona_implicada_id === actor.persona_id;
+  const puedeDescargar = implicado || alerta.conformante_id === actor.persona_id;
+  const puedeRevisar = ["tesoreria", "auditor"].includes(actor.rol);
+
+  function revisar(evento, tipo) {
+    evento.preventDefault();
+    const form = evento.currentTarget;
+    const datos = new FormData(form);
+    const decision = tipo ?? datos.get("accion");
+    const texto = datos.get("texto");
+    accion.ejecutar(async () => {
+      await api(`/alertas/${alerta.id}/revisiones`, { method: "POST", data: { accion: decision, texto } });
+      form.reset();
+      recurso.recargar();
+      recargar();
+      return { descargo: "Descargo registrado.", cierre: "Alerta cerrada.", escalamiento: "Alerta escalada." }[decision];
+    });
+  }
+
+  return (
+    <section className="seccion">
+      <div className="fila-titulo">
+        <h2>{alerta.expediente} · {alerta.regla} · {reglas[alerta.regla]}</h2>
+        <Link className="boton" to={rutaExpediente(alerta.expediente_id)}><ExternalLink size={16} /> Abrir expediente</Link>
+      </div>
+      <article className="panel ficha">
+        <div className="acciones">
+          <Indicador tono={alerta.severidad === "alta" ? "rojo" : "ambar"}>{SEVERIDADES[alerta.severidad]}</Indicador>
+          <Indicador>{ESTADOS[alerta.estado]}</Indicador>
+          <small>Creada el {fechaHora(alerta.creada_en)}</small>
+        </div>
+        <p>{alerta.explicacion}</p>
+        {alerta.implicado && <small>Persona implicada: {alerta.implicado}</small>}
+      </article>
+      <h3>Historial de la alerta</h3>
+      {recurso.datos ? recurso.datos.length ? (
+        <div className="tarjetas">{recurso.datos.map((r) => (
+          <article className="panel ficha" key={r.id}>
+            <h3>{REVISIONES[r.tipo]}</h3>
+            <small>{fechaHora(r.creado_en)} · {r.autor}</small>
+            <p>{r.texto}</p>
+          </article>
+        ))}</div>
+      ) : <p className="vacio">Sin descargos ni revisiones.</p> : <Carga recurso={recurso} />}
+      <EstadoAccion accion={accion} />
+      {alerta.estado === "cerrada" ? <Aviso>Alerta cerrada. Su revisión se conserva en la bitácora.</Aviso> : <>
+        {puedeDescargar && <form className="panel formulario" onSubmit={(e) => revisar(e, "descargo")}>
+          <h3>Presentar descargo</h3>
+          <Campo titulo="Explica lo ocurrido"><textarea name="texto" required /></Campo>
+          <div><button className="primario" disabled={accion.pendiente}>Enviar descargo</button></div>
+        </form>}
+        {puedeRevisar && (implicado
+          ? <Aviso tipo="advertencia">Figuras como persona implicada. Otra persona debe cerrar o escalar esta alerta.</Aviso>
+          : <form className="panel formulario" onSubmit={(e) => revisar(e)}>
+            <h3>{alerta.estado === "escalada" ? "Cerrar alerta" : "Cerrar o escalar"}</h3>
+            <Campo titulo="Decisión"><select name="accion"><option value="cierre">Cerrar</option>
+              {alerta.estado !== "escalada" && <option value="escalamiento">Escalar</option>}
+            </select></Campo>
+            <Campo titulo="Motivo (obligatorio)"><textarea name="texto" required /></Campo>
+            <div><button className="primario" disabled={accion.pendiente}>Registrar decisión</button></div>
+          </form>
+        )}
+        {!puedeRevisar && !puedeDescargar && <small>Cierran o escalan alertas tesorería y auditoría.</small>}
+      </>}
+    </section>
+  );
+}
+
+export function Alertas({ actor }) {
+  const recurso = useDatos("/alertas");
+  const [params, setParams] = useSearchParams();
+  const seleccion = params.get("alerta") ?? "";
+  const [estados, setEstados] = useState(["abierta", "con_descargo", "escalada"]);
+  const [filtroReglas, setFiltroReglas] = useState([]);
+  function elegir(id) {
+    setParams(id ? { alerta: id } : {});
+  }
+  if (!recurso.datos) return <><Encabezado titulo="Alertas" descripcion={AVISO_ALERTAS} /><Carga recurso={recurso} /></>;
+  const { alertas, reglas } = recurso.datos;
+  const opciones = Object.fromEntries(Object.entries(reglas).map(([regla, nombre]) => [regla, `${regla} · ${nombre}`]));
+  const filas = alertas.filter((a) => String(a.id) === seleccion
+    || (estados.includes(a.estado) && (!filtroReglas.length || filtroReglas.includes(a.regla))));
+  const elegida = filas.find((a) => String(a.id) === seleccion);
+  const columnas = [
+    { titulo: "N.º", valor: (a) => a.id, render: (a) => <Link to={`?alerta=${a.id}`}>{a.id}</Link> },
+    { titulo: "Expediente", valor: (a) => a.expediente },
+    { titulo: "Área", valor: (a) => a.area_sigla },
+    { titulo: "Regla", valor: (a) => opciones[a.regla] },
+    { titulo: "Severidad", valor: (a) => a.severidad, render: (a) => <Indicador tono={a.severidad === "alta" ? "rojo" : "ambar"}>{SEVERIDADES[a.severidad]}</Indicador> },
+    { titulo: "Estado", valor: (a) => ESTADOS[a.estado] },
+    { titulo: "Persona implicada", valor: (a) => a.implicado },
+    { titulo: "Creada", valor: (a) => a.creada_en, render: (a) => fechaHora(a.creada_en) },
+  ];
+  return (
+    <>
+      <Encabezado titulo="Alertas" descripcion={AVISO_ALERTAS} />
+      <div className="panel barra-filtros">
+        <Filtros titulo="Estado" opciones={ESTADOS} valores={estados} onChange={setEstados} />
+        <Filtros titulo="Regla" opciones={opciones} valores={filtroReglas} onChange={setFiltroReglas} />
+      </div>
+      <p className="secundario">{filas.length} alertas.</p>
+      <Tabla columnas={columnas} filas={filas} etiqueta="Bandeja de alertas" />
+      {seleccion && !elegida && <Aviso tipo="error">La alerta no existe o está fuera de tu alcance.</Aviso>}
+      {filas.length > 0 && <div className="selector-alerta">
+        <Campo titulo="Alerta a revisar"><select value={elegida?.id ?? ""} onChange={(e) => elegir(e.target.value)}>
+          <option value="">Elige una alerta</option>
+          {filas.map((a) => <option key={a.id} value={a.id}>N.º {a.id} · {a.expediente} · {a.regla}</option>)}
+        </select></Campo>
+      </div>}
+      {elegida && <RevisionAlerta key={elegida.id} alerta={elegida} reglas={reglas} actor={actor} recargar={recurso.recargar} />}
+    </>
+  );
+}
+
+const huella = (texto) => texto && <code title={texto}>{texto.slice(0, 16)}…</code>;
+const columnasBitacora = [
+  { titulo: "N.º", valor: (f) => f.id },
+  { titulo: "Fecha", valor: (f) => f.ts, render: (f) => fechaHora(f.ts) },
+  { titulo: "Quién", valor: (f) => f.actor ?? "Sistema" },
+  { titulo: "Acción", valor: (f) => ACCIONES[f.accion] ?? f.accion },
+  { titulo: "Expediente", valor: (f) => f.expediente },
+  { titulo: "Documento (SHA-256)", valor: (f) => f.documento_sha256, render: (f) => huella(f.documento_sha256) },
+  { titulo: "Hash anterior", valor: (f) => f.hash_anterior, render: (f) => huella(f.hash_anterior) },
+  { titulo: "Hash", valor: (f) => f.hash, render: (f) => huella(f.hash) },
+];
+
+export function Bitacora() {
+  const recurso = useDatos("/bitacora");
+  const accion = useAccion();
+  const [integridad, setIntegridad] = useState(null);
+  function verificar() {
+    setIntegridad(null);
+    accion.ejecutar(async () => setIntegridad(await api("/bitacora/integridad")));
+  }
+  return (
+    <>
+      <Encabezado titulo="Bitácora" descripcion="Cada registro guarda la huella del anterior. Verifica la cadena para detectar modificaciones."
+        acciones={<button className="primario" onClick={verificar} disabled={accion.pendiente}><ShieldCheck size={17} />
+          {accion.pendiente ? "Verificando…" : "Verificar integridad"}</button>} />
+      <EstadoAccion accion={accion} />
+      {integridad && (integridad.integra
+        ? <Aviso tipo="exito">Cadena íntegra. Registros verificados: {integridad.total}.</Aviso>
+        : <Aviso tipo="error">Cadena alterada en el registro n.º {integridad.id_roto} de {integridad.total}. {integridad.motivo}</Aviso>)}
+      {recurso.datos ? <>
+        <p className="secundario">Últimos {recurso.datos.length} registros.</p>
+        <Tabla columnas={columnasBitacora} filas={recurso.datos} etiqueta="Registros de bitácora" />
+      </> : <Carga recurso={recurso} />}
+    </>
+  );
+}

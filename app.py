@@ -1,61 +1,54 @@
-"""Conforme — entrada de la aplicación.  Uso: streamlit run app.py"""
-import streamlit as st
+"""Servidor de la API y de la compilación de React."""
+from pathlib import Path
 
-from conforme.interfaz import ETIQUETAS_ROL
-from conforme.modelos import ROL_AREA_USUARIA, ROL_AUDITOR
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-st.set_page_config(page_title="Conforme", page_icon=":material/verified:", layout="wide")
+from conforme.api import router
+from conforme.errores import ErrorValidacion
+from conforme.permisos import PermisoDenegado
 
-st.warning(
-    "**Datos sintéticos.** Demostración académica: las personas, proveedores, "
-    "montos y documentos que aparecen son ficticios.",
-    icon=":material/science:",
-)
-
-actor = st.session_state.get("actor")
+app = FastAPI(title="Conforme")
+app.include_router(router, prefix="/api")
 
 
-def cerrar_sesion():
-    st.session_state.clear()
-    st.rerun()
+@app.middleware("http")
+async def proteger_api(request: Request, call_next):
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    # El cliente envía este encabezado en escrituras. Un formulario de otro
+    # origen no puede establecerlo y la API no permite CORS.
+    if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("X-Conforme") != "1":
+        return JSONResponse({"detail": "Solicitud no autorizada."}, status_code=403)
+    respuesta = await call_next(request)
+    respuesta.headers["Cache-Control"] = "no-store"
+    respuesta.headers["X-Content-Type-Options"] = "nosniff"
+    return respuesta
 
 
-# Pública: se registra también para visitantes sin sesión (la abre el QR en F3).
-# Sin sesión no se muestra en la barra lateral: se llega por el QR o por el enlace del login.
-verificar = st.Page("paginas/verificar.py", title="Verificar sello",
-                    url_path="verificar", icon=":material/qr_code_2:")
+@app.exception_handler(ErrorValidacion)
+async def error_validacion(_request: Request, error: ErrorValidacion):
+    return JSONResponse({"detail": str(error)}, status_code=422)
 
-if actor is None:
-    paginas = [
-        st.Page("paginas/login.py", title="Ingresar", icon=":material/login:", default=True),
-        verificar,
-    ]
-else:
-    paginas = [
-        st.Page("paginas/expedientes.py", title="Expedientes",
-                icon=":material/folder_open:", default=True),
-        st.Page("paginas/expediente_detalle.py", title="Detalle de expediente",
-                icon=":material/description:"),
-    ]
-    if actor.rol == ROL_AREA_USUARIA:
-        paginas += [
-            st.Page("paginas/nuevo_expediente.py", title="Nuevo expediente",
-                    icon=":material/note_add:"),
-            st.Page("paginas/lectura_ia.py", title="Lectura con IA",
-                    icon=":material/auto_awesome:"),
-            st.Page("paginas/conformidad.py", title="Registrar conformidad",
-                    icon=":material/task_alt:"),
-        ]
-    paginas.append(st.Page("paginas/alertas.py", title="Alertas",
-                           icon=":material/notification_important:"))
-    if actor.rol == ROL_AUDITOR:
-        paginas.append(st.Page("paginas/bitacora.py", title="Bitácora",
-                               icon=":material/link:"))
-    paginas += [
-        verificar,
-        st.Page(cerrar_sesion, title="Cerrar sesión", icon=":material/logout:"),
-    ]
-    st.sidebar.markdown(f"**{actor.nombre}**")
-    st.sidebar.caption(f"{ETIQUETAS_ROL[actor.rol]} · usuario `{actor.username}`")
 
-st.navigation(paginas, position="sidebar" if actor else "hidden").run()
+@app.exception_handler(PermisoDenegado)
+async def permiso_denegado(_request: Request, error: PermisoDenegado):
+    return JSONResponse({"detail": str(error)}, status_code=403)
+
+
+_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
+app.mount("/assets", StaticFiles(directory=_DIST / "assets", check_dir=False), name="assets")
+
+
+@app.get("/{ruta:path}", include_in_schema=False)
+def interfaz(ruta: str):
+    if ruta == "api" or ruta.startswith("api/"):
+        return JSONResponse({"detail": "Ruta no encontrada."}, status_code=404)
+    indice = _DIST / "index.html"
+    if not indice.is_file():
+        return JSONResponse(
+            {"detail": "Usa el servidor de Vite o compila el frontend con npm run build."},
+            status_code=503,
+        )
+    return FileResponse(indice, headers={"Cache-Control": "no-cache"})

@@ -4,7 +4,7 @@
     {
       "name": "conforme",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.port", "8501", "--server.headless", "true"],
+      "runtimeArgs": ["-m", "uvicorn", "app:app", "--port", "8501"],
       "port": 8501
     }
   ]

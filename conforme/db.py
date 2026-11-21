@@ -1,10 +1,6 @@
-"""Engine único y sesiones cortas.
-
-El engine vive en una variable de módulo: Streamlit reejecuta el script en cada
-interacción, pero no vuelve a importar los módulos, así que no se abren
-conexiones nuevas en cada rerun.
-"""
+"""Pool de conexiones compartido y sesiones cortas por operación."""
 from contextlib import contextmanager
+from threading import Lock
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
@@ -13,6 +9,7 @@ from sqlalchemy.orm import Session
 from conforme import config
 
 _engine: Engine | None = None
+_inicio_engine = Lock()
 
 
 def crear_engine(url: str) -> Engine:
@@ -28,7 +25,9 @@ def crear_engine(url: str) -> Engine:
 def obtener_engine() -> Engine:
     global _engine
     if _engine is None:
-        _engine = crear_engine(config.url_base_datos())
+        with _inicio_engine:
+            if _engine is None:
+                _engine = crear_engine(config.url_base_datos())
     return _engine
 
 
