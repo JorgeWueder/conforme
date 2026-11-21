@@ -6,6 +6,26 @@ La interfaz del repositorio se sirve con React y Vite. FastAPI reutiliza el repo
 
 Verificación local del 21 nov 2026. Pasaron 208 pruebas contra PostgreSQL desechable. En Chrome se comprobaron los tres roles, el alta manual y por CSV, los pagos con alerta, los descargos y revisiones, la conformidad con PDF, el sello público y la integridad de la bitácora. La lectura con IA se comprobó con el resultado de respaldo y revisión humana.
 
+Segunda verificación tras el pull (21 nov 2026, otra sesión):
+- [x] `pip install -r requirements.txt -r requirements-dev.txt`, `npm --prefix frontend ci` (0 vulnerabilidades) y `npm --prefix frontend run build` sin errores.
+- [x] `pytest`: 208 pruebas pasan contra un PostgreSQL 17 local desechable (~1 min).
+- [x] Base local nueva: `migrar` (001–004), `sembrar` y `medir_deteccion` → 28 alertas, 0 no detectadas, 0 falsos positivos.
+- [x] API con Uvicorn: escrituras sin el encabezado `X-Conforme` → 403. `inf1` ve 34 expedientes y 8 alertas; `tes1` y `oci1` ven 300 y 28. Bitácora e integridad: 403 para `inf1` y `tes1`; `oci1` → íntegra, 2420 registros.
+- [x] Navegador integrado: login de `inf1`, lista de expedientes, detalle de `EXP-2026-0300` (rojo con R1, R2 y R4, línea de tiempo y sello) y `/verificar?c=…` sin errores → «Íntegra, 2420».
+- [ ] `DATABASE_URL_TEST` y `DATABASE_URL_DEMO` de `.env` fallan con «password authentication failed». Hay que copiar de Neon las URL vigentes. `DATABASE_URL` (dev) sí conecta.
+- [ ] `.env` no tiene `SESSION_SECRET`. En local basta con que esté vacío, pero las sesiones se pierden al reiniciar. En el despliegue es obligatorio.
+- [ ] `BASE_URL` de `.env` apunta todavía a la app de Streamlit: los QR generados en local apuntarían allí. Hay que dejarlo vacío en local y usar la URL pública nueva en el despliegue.
+- [ ] Despliegue: Streamlit Community Cloud no puede servir FastAPI + React. Hay que elegir otro servicio para servir Uvicorn por HTTPS, con `npm run build` en la compilación. La URL de Streamlit en la tabla de estado ya no refleja la versión actual.
+
+### Mejoras de interfaz (21 nov 2026)
+- Expedientes: tarjetas de resumen (en rojo, en ámbar, en verde, sin conformidad) que funcionan como filtro rápido (`?ver=`), filas clicables, descripción recortada a dos líneas y menos columnas (sin tipo ni plazo; el área solo para tesorería y auditoría).
+- Registrar conformidad (elegir expediente): tabla de pendientes clicable en lugar de un desplegable.
+- Detalle: aviso «próximo paso» según rol y estado (registrar conformidad, presentar descargo, listo para pagar, alertas por revisar) e índice de secciones. El pago propone como penalidad descontada la aplicada en la conformidad.
+- Conformidad: revisión previa en vivo de R1–R4 antes de guardar (cumplido sin evidencia, penalidad menor a la esperada, conformidad tardía, solicitante = conformante) y botón «Usar S/ X» con la penalidad esperada. Nueva ruta `GET /api/expedientes/{id}/penalidad?entrega=` que usa las mismas funciones de `normativa.py` que R2 (prueba en `tests/test_api.py`). Es solo orientación: no bloquea.
+- Alertas: vista «Por atender» por defecto (área usuaria: abiertas donde puede presentar descargo; tesorería y auditoría: sin cerrar donde no figura como implicada), conteo por estado, filtro de regla como desplegable, orden por severidad, filas clicables y el panel de revisión arriba de la tabla. Cerrar y escalar son dos botones.
+- Verificado: 209 pruebas pasan (PostgreSQL local desechable), `npm run build` sin errores, y en el navegador (Vite + API local) con `tes1` (bandeja, escalar una alerta, detalle sin conformidad) e `inf1` (conformidad de `EXP-2026-0295`: la revisión previa anunció 1 alerta R1 y el servidor generó exactamente 1). Lista de expedientes revisada a 375 px.
+- No probado en el navegador: el botón «Usar S/ X» con un expediente atrasado (la cuenta sí la cubre la prueba), el registro de pago desde el nuevo aviso y la vista de auditoría.
+
 ## Estado (actualizado al cerrar F4, 13 nov 2026)
 
 | Fase | Estado |

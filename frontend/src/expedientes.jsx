@@ -2,27 +2,36 @@ import { useEffect, useState } from "react";
 import { Plus, Search, Trash2 } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, useAccion, useDatos } from "./api";
-import { SEMAFOROS, capitalizar, fecha, hoy, rutaExpediente, soles } from "./dominio";
-import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Filtros, Semaforo, Tabla, Volver } from "./ui";
+import { fecha, hoy, rutaExpediente, soles } from "./dominio";
+import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Indicador, Resumen, Semaforo, Tabla, Volver } from "./ui";
 
-const columnas = [
+const columnas = (actor) => [
   { titulo: "Código", valor: (f) => f.codigo, render: (f) => <Link to={rutaExpediente(f.id)}>{f.codigo}</Link> },
   { titulo: "Semáforo", valor: (f) => ({ rojo: 0, ambar: 1, verde: 2 }[f.semaforo]), render: (f) => <Semaforo color={f.semaforo} /> },
-  { titulo: "Descripción", valor: (f) => f.descripcion },
-  { titulo: "Área", valor: (f) => f.area_sigla },
-  { titulo: "Tipo", valor: (f) => capitalizar(f.tipo) },
-  { titulo: "Proveedor", valor: (f) => f.proveedor },
+  { titulo: "Descripción", valor: (f) => f.descripcion, clase: "celda-texto",
+    render: (f) => <span className="recorte" title={f.descripcion}>{f.descripcion}</span> },
+  ...(actor.rol === "area_usuaria" ? [] : [{ titulo: "Área", valor: (f) => f.area_sigla }]),
+  { titulo: "Proveedor", valor: (f) => f.proveedor, clase: "celda-texto" },
   { titulo: "Orden", valor: (f) => f.fecha_orden, render: (f) => fecha(f.fecha_orden) },
-  { titulo: "Plazo (días)", valor: (f) => f.plazo_dias },
-  { titulo: "Monto", valor: (f) => Number(f.monto), render: (f) => soles(f.monto) },
-  { titulo: "Conformidad", valor: (f) => f.tiene_conformidad ? "Registrada" : "Pendiente" },
-  { titulo: "Alertas sin cerrar", valor: (f) => f.alertas_altas + f.alertas_medias },
+  { titulo: "Monto", valor: (f) => Number(f.monto), render: (f) => soles(f.monto), clase: "numero" },
+  { titulo: "Conformidad", valor: (f) => f.tiene_conformidad ? "Registrada" : "Pendiente",
+    render: (f) => f.tiene_conformidad ? "Registrada" : <Indicador tono="neutro">Pendiente</Indicador> },
+  { titulo: "Alertas", valor: (f) => f.alertas_altas + f.alertas_medias, clase: "numero",
+    render: (f) => f.alertas_altas + f.alertas_medias || "—" },
 ];
+
+const VISTAS = {
+  rojo: (f) => f.semaforo === "rojo",
+  ambar: (f) => f.semaforo === "ambar",
+  verde: (f) => f.semaforo === "verde",
+  pendiente: (f) => !f.tiene_conformidad,
+};
 
 export function Expedientes({ actor }) {
   const [params, setParams] = useSearchParams();
   const texto = params.get("q") ?? "";
-  const colores = params.getAll("color");
+  const vista = VISTAS[params.get("ver")] ? params.get("ver") : null;
+  const navegar = useNavigate();
   const [busqueda, setBusqueda] = useState(texto);
   useEffect(() => setBusqueda(texto), [texto]);
   useEffect(() => {
@@ -35,27 +44,40 @@ export function Expedientes({ actor }) {
     return () => clearTimeout(id);
   }, [busqueda, texto, setParams]);
   const recurso = useDatos(`/expedientes?texto=${encodeURIComponent(texto)}`);
-  const filas = recurso.datos?.filter((f) => !colores.length || colores.includes(f.semaforo));
+  const todos = recurso.datos;
+  const filas = todos?.filter((f) => !vista || VISTAS[vista](f));
+  const contar = (clave) => todos?.filter(VISTAS[clave]).length ?? "…";
+  const cambiarVista = (clave) => setParams((actuales) => {
+    if (clave) actuales.set("ver", clave);
+    else actuales.delete("ver");
+    return actuales;
+  }, { replace: true });
+  const alcance = actor.rol === "area_usuaria" ? "de tu área" : "de toda la entidad";
   return (
     <>
-      <Encabezado titulo="Expedientes" descripcion="Consulta el estado de las órdenes, conformidades y pagos."
+      <Encabezado titulo="Expedientes" descripcion={`Órdenes ${alcance}: estado de la conformidad, alertas y pagos.`}
         acciones={actor.rol === "area_usuaria" && <Link className="boton primario" to="/nuevo-expediente"><Plus size={17} />Nuevo expediente</Link>} />
-      <div className="panel barra-filtros">
-        <Campo titulo="Buscar expedientes" icono={<Search size={18} aria-hidden="true" />}>
+      <Resumen activo={vista} onChange={cambiarVista} opciones={[
+        { clave: "rojo", titulo: "En rojo", valor: contar("rojo"), tono: "rojo", ayuda: "Con alertas altas sin cerrar" },
+        { clave: "ambar", titulo: "En ámbar", valor: contar("ambar"), tono: "ambar", ayuda: "Solo alertas medias sin cerrar" },
+        { clave: "verde", titulo: "En verde", valor: contar("verde"), tono: "verde", ayuda: "Sin alertas pendientes" },
+        { clave: "pendiente", titulo: "Sin conformidad", valor: contar("pendiente"), ayuda: "Conformidad aún no registrada" },
+      ]} />
+      <div className="barra-filtros">
+        <Campo titulo="Buscar" icono={<Search size={18} aria-hidden="true" />}>
           <input type="search" placeholder="Código, descripción o proveedor"
             value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
         </Campo>
-        <Filtros titulo="Semáforo" opciones={SEMAFOROS} valores={colores}
-          onChange={(valores) => setParams((actuales) => {
-            actuales.delete("color");
-            for (const color of valores) actuales.append("color", color);
-            return actuales;
-          }, { replace: true })} />
       </div>
       {filas ? <>
-        <p className="secundario">{filas.length} expedientes {actor.rol === "area_usuaria" ? "de tu área" : "de toda la entidad"}.
-          Rojo indica alertas altas sin cerrar, ámbar solo medias y verde ninguna sin cerrar.</p>
-        <Tabla columnas={columnas} filas={filas} etiqueta="Expedientes" />
+        <p className="secundario">
+          {filas.length} de {todos.length} expedientes {alcance}
+          {vista && <> · <button type="button" className="enlace" onClick={() => cambiarVista(null)}>Quitar filtro</button></>}
+          {" · "}Pulsa una fila para abrir el expediente.
+        </p>
+        <Tabla columnas={columnas(actor)} filas={filas} etiqueta="Expedientes"
+          alElegir={(fila) => navegar(rutaExpediente(fila.id))}
+          vacio={vista ? "Ningún expediente cumple este filtro." : "No hay expedientes que coincidan con la búsqueda."} />
       </> : <Carga recurso={recurso} />}
     </>
   );
@@ -176,14 +198,20 @@ export function ElegirConformidad() {
   const pendientes = recurso.datos?.filter((e) => !e.tiene_conformidad);
   return (
     <>
-      <Encabezado titulo="Registrar conformidad" />
+      <Encabezado titulo="Registrar conformidad"
+        descripcion="Expedientes de tu área que aún no tienen conformidad. Pulsa uno para registrarla." />
       {pendientes ? pendientes.length ? (
-        <div className="panel">
-          <Campo titulo="Expediente"><select defaultValue="" onChange={(e) => navegar(`${rutaExpediente(e.target.value)}/conformidad`)}>
-            <option value="" disabled>Elige un expediente</option>
-            {pendientes.map((e) => <option value={e.id} key={e.id}>{e.codigo} · {e.descripcion}</option>)}
-          </select></Campo>
-        </div>
+        <Tabla etiqueta="Expedientes sin conformidad" filas={pendientes}
+          alElegir={(fila) => navegar(`${rutaExpediente(fila.id)}/conformidad`)}
+          columnas={[
+            { titulo: "Código", valor: (f) => f.codigo, render: (f) => <Link to={`${rutaExpediente(f.id)}/conformidad`}>{f.codigo}</Link> },
+            { titulo: "Descripción", valor: (f) => f.descripcion, clase: "celda-texto",
+              render: (f) => <span className="recorte" title={f.descripcion}>{f.descripcion}</span> },
+            { titulo: "Proveedor", valor: (f) => f.proveedor, clase: "celda-texto" },
+            { titulo: "Orden", valor: (f) => f.fecha_orden, render: (f) => fecha(f.fecha_orden) },
+            { titulo: "Plazo", valor: (f) => f.plazo_dias, render: (f) => `${f.plazo_dias} días` },
+            { titulo: "Monto", valor: (f) => Number(f.monto), render: (f) => soles(f.monto), clase: "numero" },
+          ]} />
       ) : <Aviso>No hay expedientes de tu área sin conformidad.</Aviso> : <Carga recurso={recurso} />}
     </>
   );

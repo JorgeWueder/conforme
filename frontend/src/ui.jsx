@@ -81,25 +81,31 @@ export function DatosClave({ valores }) {
   );
 }
 
-export function Filtros({ titulo, opciones, valores, onChange }) {
-  const id = useId();
+/** Botones de resumen que también filtran: muestran un conteo y se activan al pulsarlos. */
+export function Resumen({ opciones, activo, onChange }) {
   return (
-    <fieldset className="filtros">
-      <legend>{titulo}</legend>
-      {Object.entries(opciones).map(([valor, etiqueta]) => (
-        <label key={valor} className="filtro" htmlFor={`${id}-${valor}`}>
-          <input
-            id={`${id}-${valor}`} type="checkbox" checked={valores.includes(valor)}
-            onChange={(e) => onChange(e.target.checked ? [...valores, valor] : valores.filter((v) => v !== valor))}
-          />
-          {etiqueta}
-        </label>
+    <div className="resumen" role="group" aria-label="Resumen y filtros rápidos">
+      {opciones.map(({ clave, titulo, valor, tono = "neutro", ayuda }) => (
+        <button key={clave} type="button" className={`resumen-boton resumen-${tono}`} aria-pressed={activo === clave}
+          title={ayuda} onClick={() => onChange(activo === clave ? null : clave)}>
+          <span className="resumen-valor">{valor}</span><span>{titulo}</span>
+        </button>
       ))}
-    </fieldset>
+    </div>
   );
 }
 
-export function Tabla({ columnas, filas, etiqueta, vacio = "No hay resultados." }) {
+/** Siguiente paso recomendado para el rol actual. */
+export function ProximoPaso({ titulo, children, acciones, tono = "info" }) {
+  return (
+    <section className={`proximo proximo-${tono}`} aria-label="Próximo paso">
+      <div><strong>{titulo}</strong>{children && <p>{children}</p>}</div>
+      {acciones && <div className="acciones">{acciones}</div>}
+    </section>
+  );
+}
+
+export function Tabla({ columnas, filas, etiqueta, vacio = "No hay resultados.", alElegir, elegida }) {
   const [orden, setOrden] = useState(null);
   if (!filas.length) return <p className="vacio">{vacio}</p>;
   const columna = columnas.find(({ titulo }) => titulo === orden?.titulo);
@@ -126,8 +132,12 @@ export function Tabla({ columnas, filas, etiqueta, vacio = "No hay resultados." 
           );
         })}</tr></thead>
         <tbody>{ordenadas.map((fila) => (
-          <tr key={fila.id ?? fila.numero}>
-            {columnas.map(({ titulo, valor, render }) => <td key={titulo}>{render ? render(fila) : (valor(fila) ?? "—")}</td>)}
+          // Toda la fila es clicable con el ratón; con teclado se usa el enlace de la primera columna.
+          <tr key={fila.id ?? fila.numero} className={`${alElegir ? "clicable" : ""} ${elegida === fila.id ? "elegida" : ""}`}
+            onClick={alElegir ? (evento) => { if (!evento.target.closest("a, button")) alElegir(fila); } : undefined}>
+            {columnas.map(({ titulo, valor, render, clase }) => (
+              <td key={titulo} className={clase}>{render ? render(fila) : (valor(fila) ?? "—")}</td>
+            ))}
           </tr>
         ))}</tbody>
       </table>

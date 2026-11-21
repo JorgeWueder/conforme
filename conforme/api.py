@@ -168,6 +168,22 @@ def detalle_expediente(expediente_id: int, request: Request, sesion: Sesion, act
     }
 
 
+@router.get("/expedientes/{expediente_id}/penalidad")
+def calcular_penalidad(expediente_id: int, entrega: date, sesion: Sesion, actor: UsuarioActual):
+    """Orientación para el formulario: la misma cuenta que usa la regla R2."""
+    expediente = expediente_visible(sesion, actor, expediente_id)
+    monto, plazo = Decimal(expediente["monto"]), expediente["plazo_dias"]
+    atraso = normativa.dias_de_atraso(expediente["fecha_orden"], plazo, entrega)
+    return {
+        "fecha_limite": normativa.fecha_limite(expediente["fecha_orden"], plazo),
+        "dias_atraso": atraso,
+        "penalidad_esperada": str(normativa.penalidad_esperada(monto, plazo, atraso)),
+        "penalidad_tope": str(normativa.penalidad_tope(monto)),
+        "tolerancia": str(normativa.PENALIDAD_TOLERANCIA),
+        "plazo_maximo_conformidad": normativa.CONFORMIDAD_PLAZO_MAXIMO_DIAS,
+    }
+
+
 @router.get("/expedientes/{expediente_id}/sello")
 def imagen_sello(expediente_id: int, request: Request, sesion: Sesion, actor: UsuarioActual,
                  descarga: bool = False):

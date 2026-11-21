@@ -155,7 +155,7 @@ function App() {
             <Route path="nuevo-expediente" element={<NuevoExpediente />} />
             <Route path="lectura-ia" element={<LecturaIA />} />
             <Route path="conformidad" element={<ElegirConformidad />} />
-            <Route path="expedientes/:id/conformidad" element={<Conformidad />} />
+            <Route path="expedientes/:id/conformidad" element={<Conformidad actor={actor} />} />
           </Route>
           <Route element={<Protegida actor={actor} rol="auditor" />}>
             <Route path="bitacora" element={<Bitacora />} />

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  Bell, ClipboardCheck, Download, Image, QrCode, RefreshCw, Sparkles,
+  Bell, ClipboardCheck, Download, Image, QrCode, RefreshCw, Sparkles, Wallet,
 } from "lucide-react";
 import { Link, useParams } from "react-router";
 import { api, useAccion, useDatos } from "./api";
@@ -9,7 +9,7 @@ import {
 } from "./dominio";
 import {
   Aviso, AvisoNavegacion, Campo, Carga, DatosClave, Encabezado, EstadoAccion,
-  EstadoEntregable, Indicador, Metricas, Semaforo, Volver,
+  EstadoEntregable, Indicador, Metricas, ProximoPaso, Semaforo, Volver,
 } from "./ui";
 
 function Sello({ conformidad, id }) {
@@ -37,7 +37,7 @@ function Entregables({ expediente, conformidad, entregables, actor }) {
   const [mostrar, setMostrar] = useState(false);
   const ruta = rutaExpediente(expediente.id);
   return (
-    <section className="seccion">
+    <section className="seccion" id="entregables">
       <h2>Entregables y conformidad</h2>
       {conformidad ? <>
         <p>Conformidad registrada por <strong>{conformidad.conformante}</strong> el {fecha(conformidad.fecha_conformidad)}
@@ -80,7 +80,7 @@ function Entregables({ expediente, conformidad, entregables, actor }) {
 function AlertasDelExpediente({ expediente, alertas, reglas, actor, recargar }) {
   const accion = useAccion();
   return (
-    <section className="seccion">
+    <section className="seccion" id="alertas">
       <div className="fila-titulo">
         <div><h2>Alertas</h2><p className="secundario">{AVISO_ALERTAS}</p></div>
         {actor.rol !== "auditor" && (
@@ -124,7 +124,7 @@ function Pagos({ expediente, conformidad, abiertas, pagos, actor, recargar }) {
     });
   }
   return (
-    <section className="seccion">
+    <section className="seccion" id="pagos">
       <h2>Pagos</h2>
       {pagos.length ? <>
         {abiertas > 0 && <Aviso tipo="advertencia">El expediente tiene {abiertas} alertas sin cerrar y ya registra pagos. Revisa las alertas.</Aviso>}
@@ -133,15 +133,19 @@ function Pagos({ expediente, conformidad, abiertas, pagos, actor, recargar }) {
         </li>)}</ul>
       </> : <p className="vacio">Sin pagos registrados.</p>}
       {actor.rol === "tesoreria" && (
-        <details className="panel desplegable">
+        <details className="panel desplegable" id="registrar-pago">
           <summary>Registrar pago</summary>
           <form className="formulario" onSubmit={registrar}>
             {abiertas > 0 && <Aviso tipo="advertencia">Este expediente tiene {abiertas} alertas sin cerrar. El sistema no bloquea el pago.</Aviso>}
-            {!conformidad && <Aviso tipo="advertencia">El expediente no tiene conformidad registrada.</Aviso>}
+            {!conformidad && <Aviso tipo="advertencia">El expediente no tiene conformidad registrada. Si registras el pago se generará la alerta R5.</Aviso>}
             <div className="rejilla tres">
               <Campo titulo="Fecha de pago"><input name="fecha_pago" type="date" defaultValue={hoy()} required /></Campo>
-              <Campo titulo="Monto pagado (S/)"><input name="monto" type="number" min="0.01" step="0.01" defaultValue={expediente.monto} required /></Campo>
-              <Campo titulo="Penalidad descontada (S/)"><input name="penalidad_descontada" type="number" min="0" step="0.01" defaultValue="0" required /></Campo>
+              <Campo titulo="Monto pagado (S/)" ayuda={`Monto de la orden: ${soles(expediente.monto)}`}>
+                <input name="monto" type="number" min="0.01" step="0.01" defaultValue={expediente.monto} required /></Campo>
+              <Campo titulo="Penalidad descontada (S/)"
+                ayuda={conformidad ? `Penalidad aplicada en la conformidad: ${soles(conformidad.penalidad_aplicada)}` : undefined}>
+                <input name="penalidad_descontada" type="number" min="0" step="0.01"
+                  defaultValue={conformidad?.penalidad_aplicada ?? "0"} required /></Campo>
             </div>
             <EstadoAccion accion={accion} />
             <div><button className="primario" disabled={accion.pendiente}>Registrar pago</button></div>
@@ -154,7 +158,7 @@ function Pagos({ expediente, conformidad, abiertas, pagos, actor, recargar }) {
 
 function LineaDeTiempo({ eventos }) {
   return (
-    <section className="seccion">
+    <section className="seccion" id="linea-de-tiempo">
       <h2>Línea de tiempo</h2>
       <p className="secundario">Actividad registrada en la bitácora encadenada.</p>
       {!eventos.length && <p className="vacio">Sin movimientos registrados.</p>}
@@ -175,6 +179,58 @@ function LineaDeTiempo({ eventos }) {
   );
 }
 
+function abrirRegistroPago() {
+  const panel = document.getElementById("registrar-pago");
+  if (!panel) return;
+  panel.open = true;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+/** Qué le toca hacer a quien mira el expediente, según su rol y el estado. */
+function Siguiente({ actor, expediente, conformidad, entregables, alertas, pagos }) {
+  const ruta = rutaExpediente(expediente.id);
+  const sinCerrar = alertas.filter((a) => a.estado !== "cerrada");
+  if (actor.rol === "area_usuaria") {
+    if (!entregables.length) {
+      return <ProximoPaso titulo="Carga los entregables del expediente"
+        acciones={<Link className="boton primario" to={`/lectura-ia?expediente=${expediente.id}`}><Sparkles size={16} /> Leer términos de referencia con IA</Link>}>
+        Sin entregables no se puede registrar la conformidad.</ProximoPaso>;
+    }
+    if (!conformidad) {
+      return <ProximoPaso titulo="Falta registrar la conformidad"
+        acciones={<Link className="boton primario" to={`${ruta}/conformidad`}><ClipboardCheck size={17} /> Registrar conformidad</Link>}>
+        Revisa cada entregable y adjunta su evidencia.</ProximoPaso>;
+    }
+    const propias = sinCerrar.filter((a) => a.estado === "abierta"
+      && [a.persona_implicada_id, a.conformante_id].includes(actor.persona_id));
+    if (propias.length) {
+      return <ProximoPaso tono="advertencia" titulo={`Puedes presentar descargo en ${propias.length === 1 ? "1 alerta" : `${propias.length} alertas`}`}
+        acciones={<Link className="boton primario" to={rutaAlerta(propias[0].id)}><Bell size={16} /> Ir a la alerta</Link>}>
+        Explica lo ocurrido para que tesorería o auditoría la revisen.</ProximoPaso>;
+    }
+    return null;
+  }
+  if (actor.rol === "tesoreria" && !pagos.length) {
+    if (!conformidad) {
+      return <ProximoPaso tono="advertencia" titulo="Aún no hay conformidad">
+        El área usuaria no ha registrado la conformidad. Un pago ahora generará la alerta R5.</ProximoPaso>;
+    }
+    return <ProximoPaso tono={sinCerrar.length ? "advertencia" : "info"}
+      titulo={sinCerrar.length ? `Listo para el pago, con ${sinCerrar.length} alertas sin cerrar` : "Listo para registrar el pago"}
+      acciones={<>
+        {sinCerrar.length > 0 && <a className="boton" href="#alertas"><Bell size={16} /> Ver alertas</a>}
+        <button className="primario" onClick={abrirRegistroPago}><Wallet size={16} /> Registrar pago</button>
+      </>}>
+      {sinCerrar.length ? "Revisa las alertas antes de pagar. El sistema no bloquea el pago." : "La conformidad está registrada y no hay alertas pendientes."}
+    </ProximoPaso>;
+  }
+  if (actor.rol !== "area_usuaria" && sinCerrar.length) {
+    return <ProximoPaso tono="advertencia" titulo={`${sinCerrar.length === 1 ? "1 alerta" : `${sinCerrar.length} alertas`} por revisar`}
+      acciones={<Link className="boton primario" to={rutaAlerta(sinCerrar[0].id)}><Bell size={16} /> Revisar en la bandeja</Link>} />;
+  }
+  return null;
+}
+
 export function Detalle({ actor }) {
   const { id } = useParams();
   const recurso = useDatos(`/expedientes/${id}`);
@@ -190,6 +246,14 @@ export function Detalle({ actor }) {
         <Volver to="/expedientes">Expedientes</Volver>
       </Encabezado>
       <AvisoNavegacion />
+      <Siguiente actor={actor} expediente={expediente} conformidad={conformidad} entregables={entregables}
+        alertas={alertas} pagos={pagos} />
+      <nav className="indice" aria-label="Secciones del expediente">
+        <a href="#alertas">Alertas ({alertas.length})</a>
+        <a href="#entregables">Entregables ({entregables.length})</a>
+        <a href="#pagos">Pagos ({pagos.length})</a>
+        <a href="#linea-de-tiempo">Línea de tiempo</a>
+      </nav>
       <Metricas valores={[
         ["Conformidad", conformidad ? "Registrada" : "Pendiente"],
         ["Cumplidos con evidencia", conformidad ? `${cumplidos.length - sinEvidencia.length} de ${cumplidos.length}` : "—"],
