@@ -16,6 +16,7 @@ const columnas = (actor) => [
   { titulo: "Monto", valor: (f) => Number(f.monto), render: (f) => soles(f.monto), clase: "numero" },
   { titulo: "Conformidad", valor: (f) => f.tiene_conformidad ? "Registrada" : "Pendiente",
     render: (f) => f.tiene_conformidad ? "Registrada" : <Indicador tono="neutro">Pendiente</Indicador> },
+  ...(actor.rol === "area_usuaria" ? [] : [{ titulo: "Pago", valor: (f) => f.tiene_pago ? "Registrado" : "Pendiente" }]),
   { titulo: "Alertas", valor: (f) => f.alertas_altas + f.alertas_medias, clase: "numero",
     render: (f) => f.alertas_altas + f.alertas_medias || "—" },
 ];
@@ -25,6 +26,7 @@ const VISTAS = {
   ambar: (f) => f.semaforo === "ambar",
   verde: (f) => f.semaforo === "verde",
   pendiente: (f) => !f.tiene_conformidad,
+  por_pagar: (f) => f.tiene_conformidad && !f.tiene_pago,
 };
 
 export function Expedientes({ actor }) {
@@ -61,7 +63,9 @@ export function Expedientes({ actor }) {
         { clave: "rojo", titulo: "En rojo", valor: contar("rojo"), tono: "rojo", ayuda: "Con alertas altas sin cerrar" },
         { clave: "ambar", titulo: "En ámbar", valor: contar("ambar"), tono: "ambar", ayuda: "Solo alertas medias sin cerrar" },
         { clave: "verde", titulo: "En verde", valor: contar("verde"), tono: "verde", ayuda: "Sin alertas pendientes" },
-        { clave: "pendiente", titulo: "Sin conformidad", valor: contar("pendiente"), ayuda: "Conformidad aún no registrada" },
+        actor.rol === "tesoreria"
+          ? { clave: "por_pagar", titulo: "Por pagar", valor: contar("por_pagar"), ayuda: "Con conformidad y sin pagos registrados" }
+          : { clave: "pendiente", titulo: "Sin conformidad", valor: contar("pendiente"), ayuda: "Conformidad aún no registrada" },
       ]} />
       <div className="barra-filtros">
         <Campo titulo="Buscar" icono={<Search size={18} aria-hidden="true" />}>

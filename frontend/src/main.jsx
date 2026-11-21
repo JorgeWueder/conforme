@@ -12,7 +12,7 @@ import { Aviso, Campo, Encabezado, EstadoAccion } from "./ui";
 import { Expedientes, ElegirConformidad, NuevoExpediente } from "./expedientes";
 import { Detalle } from "./detalle";
 import { Conformidad } from "./conformidad";
-import { Alertas, Bitacora } from "./auditoria";
+import { Alertas, Bitacora, meToca } from "./auditoria";
 import { LecturaIA } from "./lectura";
 import { Verificar } from "./verificar";
 import "./estilos.css";
@@ -25,8 +25,20 @@ function Marca() {
   );
 }
 
+/** Cuántas alertas esperan una acción de la persona; se actualiza al cambiar de página. */
+function usePorAtender(actor) {
+  const { pathname } = useLocation();
+  const recurso = useDatos(actor ? "/alertas" : null);
+  const { recargar } = recurso;
+  useEffect(() => {
+    if (actor) recargar();
+  }, [pathname]); // Solo al navegar: recargar cambia en cada render.
+  return recurso.datos?.alertas.filter((alerta) => meToca(alerta, actor)).length ?? 0;
+}
+
 function Marco({ actor, cerrarSesion }) {
   const accion = useAccion();
+  const porAtender = usePorAtender(actor);
   const enlaces = [
     ["/expedientes", "Expedientes", FolderOpen],
     ...(actor?.rol === "area_usuaria" ? [
@@ -46,7 +58,10 @@ function Marco({ actor, cerrarSesion }) {
           <Marca />
           <nav aria-label="Menú principal">
             {enlaces.map(([ruta, etiqueta, Icono]) => (
-              <NavLink key={ruta} to={ruta}><Icono size={18} />{etiqueta}</NavLink>
+              <NavLink key={ruta} to={ruta}><Icono size={18} />{etiqueta}
+                {ruta === "/alertas" && porAtender > 0 && <span className="insignia" title="Alertas por atender">
+                  {porAtender}<span className="solo-lector"> por atender</span></span>}
+              </NavLink>
             ))}
           </nav>
           <div className="perfil">
@@ -79,7 +94,7 @@ function Marco({ actor, cerrarSesion }) {
   );
 }
 
-function Login({ ingresar }) {
+function Login({ ingresar, vencida }) {
   const accion = useAccion();
   const navegar = useNavigate();
   const ubicacion = useLocation();
@@ -99,6 +114,7 @@ function Login({ ingresar }) {
       </div>
       <form className="panel formulario" onSubmit={enviar}>
         <h2>Ingresar</h2>
+        {vencida && <Aviso tipo="advertencia">Tu sesión venció. Vuelve a ingresar para continuar donde estabas.</Aviso>}
         <Campo titulo="Usuario"><input name="username" autoComplete="username" required placeholder="inf1, tes1 u oci1" /></Campo>
         <Campo titulo="Contraseña"><input name="password" type="password" autoComplete="current-password" required /></Campo>
         <EstadoAccion accion={accion} />
@@ -122,10 +138,14 @@ function Protegida({ actor, rol }) {
 function App() {
   const inicial = useDatos("/sesion");
   const [sesion, setSesion] = useState(undefined);
+  const [vencida, setVencida] = useState(false);
   const actor = sesion === undefined ? inicial.datos : sesion;
   const navegacion = useLocation();
   useEffect(() => {
-    const vencer = () => setSesion(null);
+    const vencer = () => {
+      setSesion(null);
+      setVencida(true);
+    };
     window.addEventListener("sesion-vencida", vencer);
     return () => window.removeEventListener("sesion-vencida", vencer);
   }, []);
@@ -145,7 +165,10 @@ function App() {
     <Routes>
       <Route element={<Marco actor={actor} cerrarSesion={cerrarSesion} />}>
         <Route index element={<Navigate to={actor ? "/expedientes" : "/login"} replace />} />
-        <Route path="login" element={actor ? <Navigate to="/expedientes" replace /> : <Login ingresar={setSesion} />} />
+        <Route path="login" element={actor ? <Navigate to="/expedientes" replace /> : <Login vencida={vencida} ingresar={(actor) => {
+          setVencida(false);
+          setSesion(actor);
+        }} />} />
         <Route path="verificar" element={<Verificar />} />
         <Route element={<Protegida actor={actor} />}>
           <Route path="expedientes" element={<Expedientes actor={actor} />} />

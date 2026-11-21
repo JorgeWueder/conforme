@@ -240,6 +240,13 @@ td.celda-texto { min-width: 12rem; }
 .revision-avisos { border-left-color: #d99a1b; background: #fffaf0; }
 .revision-ok { border-left-color: #1f8a62; background: #f2faf6; }
 
+/* Menú: insignia de alertas por atender */
+.insignia { margin-left: auto; min-width: 1.4rem; padding: 0 .4rem; border-radius: 1rem; background: var(--dorado); color: var(--azul-oscuro); font-size: .75rem; font-weight: 750; text-align: center; line-height: 1.4rem; }
+.lateral nav a.active .insignia { background: var(--azul); color: var(--papel); }
+.lateral nav a { display: flex; }
+.solo-lector { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.cadena { white-space: nowrap; font-size: .8rem; }
+
 /* Bandeja de alertas */
 .panel-revision { padding: 1rem; border: 2px solid var(--dorado); border-radius: .75rem; background: var(--papel); scroll-margin-top: 1rem; }
 .panel-revision .seccion { margin-top: .5rem; padding-top: .5rem; border-top: 0; }

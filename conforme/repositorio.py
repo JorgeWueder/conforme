@@ -73,6 +73,7 @@ def _consulta_expedientes(actor: Actor):
             Expediente.fecha_entrega_real,
             Expediente.monto,
             exists().where(Conformidad.expediente_id == Expediente.id).label("tiene_conformidad"),
+            exists().where(Pago.expediente_id == Expediente.id).label("tiene_pago"),
             _alertas_sin_cerrar(SEVERIDAD_ALTA).label("alertas_altas"),
             _alertas_sin_cerrar(SEVERIDAD_MEDIA).label("alertas_medias"),
         )
@@ -136,6 +137,7 @@ def listar_bitacora(sesion: Session, actor: Actor, limite: int = 200) -> list[di
             _NOMBRE_PERSONA.label("actor"),
             Bitacora.accion,
             Expediente.codigo.label("expediente"),
+            Bitacora.expediente_id,
             Bitacora.documento_sha256,
             Bitacora.hash_anterior,
             Bitacora.hash,

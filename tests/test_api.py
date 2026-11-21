@@ -81,6 +81,19 @@ def test_penalidad_sugerida_coincide_con_la_regla_r2(engine, base_sembrada, monk
         assert cliente.get(ruta, params={"entrega": "2026-09-29"}).status_code == 404
 
 
+def test_la_lista_indica_si_el_expediente_tiene_pagos(engine, base_sembrada, monkeypatch):
+    monkeypatch.setattr(db, "_engine", engine)
+    with TestClient(app, headers={"X-Conforme": "1"}) as cliente:
+        assert cliente.post("/api/sesion", json={"username": "tes1", "password": PASSWORD_PRUEBA}).status_code == 200
+        lista = cliente.get("/api/expedientes").json()
+        con_pago = [e for e in lista if e["tiene_pago"]]
+        sin_pago = [e for e in lista if not e["tiene_pago"]]
+        assert con_pago and sin_pago
+        for expediente in (con_pago[0], sin_pago[0]):
+            pagos = cliente.get(f"/api/expedientes/{expediente['id']}").json()["pagos"]
+            assert bool(pagos) == expediente["tiene_pago"]
+
+
 def test_conformidad_multipart_con_asignacion_de_evidencia(engine, base_sembrada, monkeypatch):
     monkeypatch.setattr(db, "_engine", engine)
     with TestClient(app, headers={"X-Conforme": "1"}) as cliente:

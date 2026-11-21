@@ -26,6 +26,15 @@ Segunda verificación tras el pull (21 nov 2026, otra sesión):
 - Verificado: 209 pruebas pasan (PostgreSQL local desechable), `npm run build` sin errores, y en el navegador (Vite + API local) con `tes1` (bandeja, escalar una alerta, detalle sin conformidad) e `inf1` (conformidad de `EXP-2026-0295`: la revisión previa anunció 1 alerta R1 y el servidor generó exactamente 1). Lista de expedientes revisada a 375 px.
 - No probado en el navegador: el botón «Usar S/ X» con un expediente atrasado (la cuenta sí la cubre la prueba), el registro de pago desde el nuevo aviso y la vista de auditoría.
 
+### Revisión de interfaz (21 nov 2026, segunda pasada)
+- Menú: insignia con las alertas «por atender» del usuario (misma regla que la bandeja), actualizada al cambiar de página.
+- Expedientes: para tesorería, la tarjeta «Sin conformidad» se cambia por «Por pagar» (con conformidad y sin pagos) y se añade la columna «Pago». La lista de expedientes trae ahora `tiene_pago` (repositorio + prueba en `tests/test_api.py`).
+- Bitácora: buscador por expediente, persona, acción o n.º; el código de expediente enlaza al detalle; las dos columnas de hash se juntan en «Huella (anterior → propia)», con el valor completo al pasar el cursor. La consulta trae `expediente_id`.
+- Lectura con IA: descripción más clara (PDF con texto; nada se guarda sin aprobación) y el historial muestra «Leído por el modelo / Resultado de respaldo» y el estado como etiqueta, en vez de los valores internos.
+- Sesión vencida: el login avisa «Tu sesión venció» y vuelve a la página donde se estaba.
+- Verificado: 212 pruebas pasan (PostgreSQL local), `npm run build` sin errores, y en el navegador con datos locales: `tes1` ve «Por pagar: 43» y la insignia (29); al borrar la sesión y navegar aparece el aviso de sesión vencida; `oci1` filtra la bitácora por `EXP-2026-0300` (8 registros) con enlaces al expediente.
+- Revisado sin cambios: nuevo expediente, verificar sello y detalle en móvil (375 px).
+
 ## Plan de redespliegue (propuesto el 21 nov 2026, sin ejecutar)
 
 Objetivo: la versión React + FastAPI publicada por HTTPS contra la rama `demo` de Neon antes del 24 nov (ensayo), con los tres roles y el QR probados en un celular.

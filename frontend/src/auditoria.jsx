@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, ShieldCheck, X } from "lucide-react";
+import { ExternalLink, Search, ShieldCheck, X } from "lucide-react";
 import { Link, useSearchParams } from "react-router";
 import { api, useAccion, useDatos } from "./api";
 import { ACCIONES, AVISO_ALERTAS, ESTADOS, REVISIONES, SEVERIDADES, fechaHora, rutaExpediente } from "./dominio";
@@ -79,7 +79,7 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
 }
 
 /** Alertas en las que la persona puede actuar ahora: descargo (área usuaria) o cierre/escalamiento. */
-function meToca(alerta, actor) {
+export function meToca(alerta, actor) {
   const implicado = alerta.persona_implicada_id === actor.persona_id;
   if (actor.rol === "area_usuaria") {
     return alerta.estado === "abierta" && (implicado || alerta.conformante_id === actor.persona_id);
@@ -169,22 +169,26 @@ export function Alertas({ actor }) {
   );
 }
 
-const huella = (texto) => texto && <code title={texto}>{texto.slice(0, 16)}…</code>;
+const huella = (texto) => texto && <code title={texto}>{texto.slice(0, 12)}…</code>;
 const columnasBitacora = [
   { titulo: "N.º", valor: (f) => f.id },
   { titulo: "Fecha", valor: (f) => f.ts, render: (f) => fechaHora(f.ts) },
-  { titulo: "Quién", valor: (f) => f.actor ?? "Sistema" },
+  { titulo: "Quién", valor: (f) => f.actor ?? "Sistema", clase: "celda-texto" },
   { titulo: "Acción", valor: (f) => ACCIONES[f.accion] ?? f.accion },
-  { titulo: "Expediente", valor: (f) => f.expediente },
-  { titulo: "Documento (SHA-256)", valor: (f) => f.documento_sha256, render: (f) => huella(f.documento_sha256) },
-  { titulo: "Hash anterior", valor: (f) => f.hash_anterior, render: (f) => huella(f.hash_anterior) },
-  { titulo: "Hash", valor: (f) => f.hash, render: (f) => huella(f.hash) },
+  { titulo: "Expediente", valor: (f) => f.expediente,
+    render: (f) => f.expediente_id ? <Link to={rutaExpediente(f.expediente_id)}>{f.expediente}</Link> : "—" },
+  { titulo: "Documento", valor: (f) => f.documento_sha256, render: (f) => huella(f.documento_sha256) ?? "—" },
+  { titulo: "Huella (anterior → propia)", valor: (f) => f.hash,
+    render: (f) => <span className="cadena">{huella(f.hash_anterior) ?? "inicio"} → {huella(f.hash)}</span> },
 ];
+const textoBitacora = (f) => [f.id, f.actor ?? "Sistema", ACCIONES[f.accion] ?? f.accion, f.expediente].join(" ").toLowerCase();
 
 export function Bitacora() {
   const recurso = useDatos("/bitacora");
   const accion = useAccion();
   const [integridad, setIntegridad] = useState(null);
+  const [busqueda, setBusqueda] = useState("");
+  const filas = recurso.datos?.filter((f) => textoBitacora(f).includes(busqueda.trim().toLowerCase()));
   function verificar() {
     setIntegridad(null);
     accion.ejecutar(async () => setIntegridad(await api("/bitacora/integridad")));
@@ -198,9 +202,17 @@ export function Bitacora() {
       {integridad && (integridad.integra
         ? <Aviso tipo="exito">Cadena íntegra. Registros verificados: {integridad.total}.</Aviso>
         : <Aviso tipo="error">Cadena alterada en el registro n.º {integridad.id_roto} de {integridad.total}. {integridad.motivo}</Aviso>)}
-      {recurso.datos ? <>
-        <p className="secundario">Últimos {recurso.datos.length} registros.</p>
-        <Tabla columnas={columnasBitacora} filas={recurso.datos} etiqueta="Registros de bitácora" />
+      {filas ? <>
+        <div className="barra-filtros">
+          <Campo titulo="Buscar" icono={<Search size={18} aria-hidden="true" />}>
+            <input type="search" placeholder="Expediente, persona, acción o n.º" value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)} />
+          </Campo>
+        </div>
+        <p className="secundario">{busqueda ? `${filas.length} de los últimos` : "Últimos"} {recurso.datos.length} registros.
+          {" "}Pasa el cursor sobre una huella para verla completa.</p>
+        <Tabla columnas={columnasBitacora} filas={filas} etiqueta="Registros de bitácora"
+          vacio="Ningún registro coincide con la búsqueda." />
       </> : <Carga recurso={recurso} />}
     </>
   );

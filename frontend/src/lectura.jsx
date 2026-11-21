@@ -3,7 +3,10 @@ import { Download, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, useAccion, useDatos } from "./api";
 import { capitalizar, fechaHora, rutaExpediente } from "./dominio";
-import { Aviso, AvisoNavegacion, Campo, Carga, Encabezado, EstadoAccion, Volver } from "./ui";
+import { Aviso, AvisoNavegacion, Campo, Carga, Encabezado, EstadoAccion, Indicador, Volver } from "./ui";
+
+const ORIGENES = { modelo: "Leído por el modelo", respaldo: "Resultado de respaldo" };
+const ESTADOS_LECTURA = { propuesta: "Pendiente", aprobada: "Aprobada", rechazada: "Rechazada" };
 
 function Propuesta({ pendiente, expediente, recargar }) {
   const [filas, setFilas] = useState(() => pendiente.resultado.entregables.map((item, id) => ({ id, descripcion: item.descripcion })));
@@ -131,7 +134,8 @@ function LecturasDelExpediente({ id }) {
       {historial.length > 0 && <details className="panel desplegable">
         <summary>Historial de lecturas ({historial.length})</summary>
         <ul className="lista-simple">{historial.map((lectura) =>
-          <li key={lectura.id}>{fechaHora(lectura.creado_en)} · «{lectura.archivo_nombre}» · {lectura.origen} · <strong>{lectura.estado}</strong></li>)}</ul>
+          <li key={lectura.id}>{fechaHora(lectura.creado_en)} · «{lectura.archivo_nombre}» · {ORIGENES[lectura.origen] ?? lectura.origen}
+            {" · "}<Indicador tono={lectura.estado === "aprobada" ? "verde" : "neutro"}>{ESTADOS_LECTURA[lectura.estado] ?? lectura.estado}</Indicador></li>)}</ul>
       </details>}
     </>
   );
@@ -144,7 +148,7 @@ export function LecturaIA() {
   const elegido = elegibles?.find((e) => String(e.id) === params.get("expediente")) ?? elegibles?.[0];
   return (
     <>
-      <Encabezado titulo="Lectura con IA" descripcion="Sube términos de referencia en PDF con texto. Revisa la propuesta antes de añadir entregables.">
+      <Encabezado titulo="Lectura con IA" descripcion="Sube los términos de referencia (PDF con texto, no escaneado). La IA propone los entregables y tú decides cuáles añadir: nada se guarda sin tu aprobación.">
         <Volver to={elegido ? rutaExpediente(elegido.id) : "/expedientes"}>{elegido ? "Volver al expediente" : "Expedientes"}</Volver>
       </Encabezado>
       <AvisoNavegacion />
