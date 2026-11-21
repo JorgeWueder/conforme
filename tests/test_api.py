@@ -15,6 +15,22 @@ def test_escrituras_requieren_el_encabezado_del_cliente():
         assert cliente.delete("/api/sesion", headers={"X-Conforme": "1"}).status_code == 204
 
 
+def test_salud_responde_sin_sesion_ni_base():
+    with TestClient(app) as cliente:
+        respuesta = cliente.get("/api/salud")
+        assert respuesta.status_code == 200
+        assert respuesta.json() == {"estado": "ok"}
+
+
+def test_detras_de_un_proxy_https_la_cookie_sale_segura(engine, base_sembrada, monkeypatch):
+    """Con --proxy-headers Uvicorn traduce X-Forwarded-Proto; aquí se simula ese resultado."""
+    monkeypatch.setattr(db, "_engine", engine)
+    with TestClient(app, base_url="https://conforme.example", headers={"X-Conforme": "1"}) as cliente:
+        inicio = cliente.post("/api/sesion", json={"username": "inf1", "password": PASSWORD_PRUEBA})
+        assert inicio.status_code == 200
+        assert "Secure" in inicio.headers["set-cookie"]
+
+
 def test_sesion_alcance_y_sello_publico(engine, base_sembrada, monkeypatch):
     monkeypatch.setattr(db, "_engine", engine)
     monkeypatch.setenv("BASE_URL", "https://conforme.example")

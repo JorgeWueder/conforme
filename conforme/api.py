@@ -59,6 +59,12 @@ def actor_actual(sesion: Sesion, identificador: Annotated[int | None, Depends(us
 UsuarioActual = Annotated[Actor, Depends(actor_actual)]
 
 
+@router.get("/salud")
+def salud():
+    """Comprobación de salud del despliegue. No toca la base para no despertar Neon."""
+    return {"estado": "ok"}
+
+
 class Credenciales(BaseModel):
     username: str
     password: str

@@ -1,0 +1,19 @@
+# Nada de secretos ni artefactos locales en la imagen.
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+.gitattributes
+.venv
+.pytest_cache
+.claude
+**/__pycache__
+**/*.pyc
+.alterar_demo.json
+.streamlit
+frontend/node_modules
+frontend/dist
+tests
+_review_deck.pptx
+*.md

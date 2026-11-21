@@ -26,6 +26,55 @@ Segunda verificación tras el pull (21 nov 2026, otra sesión):
 - Verificado: 209 pruebas pasan (PostgreSQL local desechable), `npm run build` sin errores, y en el navegador (Vite + API local) con `tes1` (bandeja, escalar una alerta, detalle sin conformidad) e `inf1` (conformidad de `EXP-2026-0295`: la revisión previa anunció 1 alerta R1 y el servidor generó exactamente 1). Lista de expedientes revisada a 375 px.
 - No probado en el navegador: el botón «Usar S/ X» con un expediente atrasado (la cuenta sí la cubre la prueba), el registro de pago desde el nuevo aviso y la vista de auditoría.
 
+## Plan de redespliegue (propuesto el 21 nov 2026, sin ejecutar)
+
+Objetivo: la versión React + FastAPI publicada por HTTPS contra la rama `demo` de Neon antes del 24 nov (ensayo), con los tres roles y el QR probados en un celular.
+
+### Decisión: dónde desplegar
+Recomendación: **Render, servicio web con Docker, plan gratuito**. Un solo contenedor sirve React compilado y la API (mismo origen: la cookie de sesión y el QR funcionan sin CORS). El `Dockerfile` también sirve tal cual para Koyeb, Fly.io o Cloud Run si Render falla.
+- A favor: gratis, despliegue automático con cada push a `main`, HTTPS incluido y variables de entorno en el panel.
+- En contra: la instancia gratuita se duerme tras un rato sin tráfico y la primera visita tarda en despertar; Neon también se duerme. Mitigación: abrir la app 10 min antes de la demo (igual que con Streamlit).
+- Por confirmar al crear la cuenta: límites actuales del plan gratuito (horas al mes y tiempo hasta dormir).
+- Alternativa sin dormir: Railway (de pago tras la prueba).
+
+### D1 — Preparar el repositorio (hecho el 21 nov 2026)
+- [x] `Dockerfile` en dos etapas: `node:22-slim` ejecuta `npm ci` y `npm run build`; `python:3.11-slim` instala `requirements.txt` y copia `app.py`, `conforme/`, `datos/`, `migraciones/`, `scripts/` y `frontend/dist`. Corre con un usuario sin privilegios. Imagen de 517 MB.
+- [x] Arranque: `uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'`.
+- [x] `.dockerignore`: `.env`, `.venv`, `.git`, `node_modules`, `frontend/dist`, `tests`, cachés y documentos.
+- [x] `GET /api/salud` (no toca la base, así no despierta Neon) y pruebas en `tests/test_api.py` para la salud y para la cookie `Secure` bajo https.
+- [x] Probado en local con Docker y un PostgreSQL 17 en otro contenedor:
+  - `migrar`, `sembrar` y `medir_deteccion` dentro de la imagen → 0 no detectadas, 0 falsos positivos;
+  - con `PORT=10000`, el servidor escucha en ese puerto y responde `/api/salud`, `/` y las rutas de React;
+  - login de `oci1` e integridad «íntegra, 2420»;
+  - simulando el proxy (`X-Forwarded-Proto: https`): la cookie sale con `Secure` y el QR apunta a `https://<host>/verificar?c=…` sin aviso;
+  - en el navegador, `/verificar?c=…` → «Íntegra».
+- [x] 211 pruebas pasan.
+- Para ejecutar `migrar` o `sembrar` contra `demo` desde el servicio: shell del contenedor y `python -m scripts.migrar` (las dependencias ya están en la imagen).
+
+### D2 — Base `demo` en Neon (lo haces tú y yo ejecuto los scripts)
+- [ ] Copiar de Neon las URL vigentes de `test` y `demo` en `.env` (las actuales fallan con «password authentication failed»).
+- [ ] Contra `demo` (con `DATABASE_URL` = `DATABASE_URL_DEMO` en esa ejecución): `migrar`, `sembrar --reiniciar` y `medir_deteccion` → 28/28, 0 falsos positivos.
+- [ ] Correr `pytest` contra la rama `test` de Neon.
+
+### D3 — Crear el servicio (lo haces tú en el panel de Render)
+- [ ] Nuevo servicio web desde el repositorio de GitHub, rama `main`, entorno Docker, ruta de salud `/api/salud`.
+- [ ] Variables: `DATABASE_URL` (URL de `demo` con pooler), `DEMO_PASSWORD`, `SESSION_SECRET` (aleatorio, p. ej. `python -c "import secrets; print(secrets.token_urlsafe(48))"`) y `BASE_URL` (la URL `https://….onrender.com` que asigne Render; se completa tras el primer despliegue y se vuelve a desplegar).
+- [ ] Opcional, IA: `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-5-nano` y una `OPENAI_API_KEY` **nueva** con límite de gasto (la anterior se compartió en una conversación; revocarla). Sin estas variables se usa el respaldo con aviso.
+
+### D4 — Verificar el despliegue
+- [ ] La URL abre el login con el banner «Datos sintéticos» y la cookie llega con `Secure` y `HttpOnly`.
+- [ ] `inf1`, `tes1` y `oci1`: alcance correcto, bandeja «Por atender», detalle del caso estrella `EXP-2026-0300` (R1, R2 y R4).
+- [ ] `oci1`: «Verificar integridad» → íntegra.
+- [ ] El QR de `EXP-2026-0300` escaneado con un celular abre `https://…/verificar?c=…` → «Íntegra». (Pendiente desde F3.)
+- [ ] Desde el celular, como `inf1`: registrar una conformidad con foto de la cámara. Al terminar, `sembrar --reiniciar` sobre `demo` para dejar los datos limpios.
+- [ ] Subir un PDF en «Lectura con IA» (no se había probado en un navegador real).
+- [ ] Recargar la página no cierra la sesión; esperar a que el servicio se duerma y medir cuánto tarda en despertar.
+
+### D5 — Cierre
+- [ ] Apagar o borrar la app de Streamlit Cloud para que no quede una versión vieja publicada.
+- [ ] Actualizar la URL de la tabla de estado, `README.md` (sección de despliegue) y `CLAUDE.md`.
+- [ ] Ensayo de la demo el 24 nov con el guion del caso estrella.
+
 ## Estado (actualizado al cerrar F4, 13 nov 2026)
 
 | Fase | Estado |
