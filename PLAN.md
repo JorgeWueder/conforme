@@ -56,19 +56,25 @@ Recomendación: **Render, servicio web con Docker, plan gratuito**. Un solo cont
 - [x] Contra `demo`: `migrar` (ya al día), `sembrar --reiniciar` (300 expedientes, 28 alertas, 2420 registros de bitácora) y `medir_deteccion` → cobertura 28/28, precisión 28/28, 0 falsos positivos.
 - [x] `pytest` contra la rama `test` de Neon: 211 pruebas pasan (~24 min por la latencia; en local tarda ~1 min).
 
-### D3 — Crear el servicio (lo haces tú en el panel de Render)
-- [ ] Nuevo servicio web desde el repositorio de GitHub, rama `main`, entorno Docker, ruta de salud `/api/salud`.
-- [ ] Variables: `DATABASE_URL` (URL de `demo` con pooler), `DEMO_PASSWORD`, `SESSION_SECRET` (aleatorio, p. ej. `python -c "import secrets; print(secrets.token_urlsafe(48))"`) y `BASE_URL` (la URL `https://….onrender.com` que asigne Render; se completa tras el primer despliegue y se vuelve a desplegar).
-- [ ] Opcional, IA: `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-5-nano` y una `OPENAI_API_KEY` **nueva** con límite de gasto (la anterior se compartió en una conversación; revocarla). Sin estas variables se usa el respaldo con aviso.
+### D3 — Crear el servicio (hecho por ti, 21 nov 2026)
+- [x] Servicio web en Render desde GitHub (`main`, Docker): https://conforme-15md.onrender.com
+- [x] Responde `/api/salud`, con `BASE_URL` apuntando a esa URL.
+- [ ] Confirmar que la `OPENAI_API_KEY` de Render es una clave nueva con límite de gasto (la anterior se compartió en una conversación).
 
-### D4 — Verificar el despliegue
-- [ ] La URL abre el login con el banner «Datos sintéticos» y la cookie llega con `Secure` y `HttpOnly`.
-- [ ] `inf1`, `tes1` y `oci1`: alcance correcto, bandeja «Por atender», detalle del caso estrella `EXP-2026-0300` (R1, R2 y R4).
-- [ ] `oci1`: «Verificar integridad» → íntegra.
-- [ ] El QR de `EXP-2026-0300` escaneado con un celular abre `https://…/verificar?c=…` → «Íntegra». (Pendiente desde F3.)
+### D4 — Verificar el despliegue (21 nov 2026)
+Comprobado contra https://conforme-15md.onrender.com (API con un script y páginas públicas en el navegador):
+- [x] La portada lleva al login con el banner «Datos sintéticos»; las rutas de React (`/expedientes/300`) cargan.
+- [x] Cookie de sesión con `Secure`, `HttpOnly` y `SameSite=Lax`. Escrituras sin `X-Conforme` → 403; API sin sesión → 401; contraseña errónea → 401. `/api` con `Cache-Control: no-store` y `nosniff`.
+- [x] Alcance: `inf1` 34 expedientes y 8 alertas; `tes1` y `oci1` 300 y 28. Bitácora solo `oci1`; proveedores solo `inf1`.
+- [x] Caso estrella `EXP-2026-0300`: rojo con R1, R2 y R4; penalidad sugerida S/ 3,200.00 por 12 días.
+- [x] `oci1`: integridad → íntegra, 2420 registros (1,5 s).
+- [x] QR: la imagen decodificada es `https://conforme-15md.onrender.com/verificar?c=…` (igual a la URL del sello, sin aviso de `BASE_URL`); la verificación pública sin sesión → «Íntegra» y no expone DNI. En el navegador a 375 px la página `/verificar` muestra «Íntegra. Registros verificados: 2420».
+- [x] La sesión sigue activa en una consulta posterior (equivale a recargar).
+- [ ] Escanear el QR con la cámara de un celular real (pendiente desde F3).
 - [ ] Desde el celular, como `inf1`: registrar una conformidad con foto de la cámara. Al terminar, `sembrar --reiniciar` sobre `demo` para dejar los datos limpios.
-- [ ] Subir un PDF en «Lectura con IA» (no se había probado en un navegador real).
-- [ ] Recargar la página no cierra la sesión; esperar a que el servicio se duerma y medir cuánto tarda en despertar.
+- [ ] Subir un PDF en «Lectura con IA» desde un navegador real (el navegador integrado no sube archivos).
+- [ ] Recorrer las pantallas con sesión en el navegador (aquí se comprobó por la API, sin escribir la contraseña en el navegador integrado).
+- [ ] Medir cuánto tarda en despertar tras dormirse (en esta prueba ya estaba despierto: portada en 0,8 s).
 
 ### D5 — Cierre
 - [ ] Apagar o borrar la app de Streamlit Cloud para que no quede una versión vieja publicada.
