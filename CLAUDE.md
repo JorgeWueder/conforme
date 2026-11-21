@@ -5,7 +5,7 @@ MVP de hackathon universitaria (entrega 25 nov 2026). Herramienta web de alerta 
 Lee `PLAN.md` primero: tiene el plan aprobado, el estado por fase y lo pendiente.
 
 ## Stack (no cambiar sin preguntar)
-React 19 con Vite 7 (`frontend/`, Node 20.19+ o 22.12+), API FastAPI en Python 3.11, PostgreSQL con SQLAlchemy 2 y psycopg 3, migraciones SQL numeradas con ejecutor propio, Faker y pytest. Uvicorn sirve la compilación de React (`frontend/dist`) y la API (`/api`) desde el mismo origen. Base de datos en Neon (ramas dev, test y demo). Falta elegir dónde desplegar: Streamlit Cloud ya no sirve (ver `PLAN.md`).
+React 19 con Vite 7 (`frontend/`, Node 20.19+ o 22.12+), API FastAPI en Python 3.11, PostgreSQL con SQLAlchemy 2 y psycopg 3, migraciones SQL numeradas con ejecutor propio, Faker y pytest. Uvicorn sirve la compilación de React (`frontend/dist`) y la API (`/api`) desde el mismo origen. Base de datos en Neon (ramas dev, test y demo). Despliegue previsto: Render con el `Dockerfile` del repositorio (ver «Plan de redespliegue» en `PLAN.md`); Streamlit Cloud ya no sirve.
 
 ## Comandos (PowerShell, desde la raíz)
 ```

@@ -12,7 +12,7 @@ Segunda verificación tras el pull (21 nov 2026, otra sesión):
 - [x] Base local nueva: `migrar` (001–004), `sembrar` y `medir_deteccion` → 28 alertas, 0 no detectadas, 0 falsos positivos.
 - [x] API con Uvicorn: escrituras sin el encabezado `X-Conforme` → 403. `inf1` ve 34 expedientes y 8 alertas; `tes1` y `oci1` ven 300 y 28. Bitácora e integridad: 403 para `inf1` y `tes1`; `oci1` → íntegra, 2420 registros.
 - [x] Navegador integrado: login de `inf1`, lista de expedientes, detalle de `EXP-2026-0300` (rojo con R1, R2 y R4, línea de tiempo y sello) y `/verificar?c=…` sin errores → «Íntegra, 2420».
-- [ ] `DATABASE_URL_TEST` y `DATABASE_URL_DEMO` de `.env` fallan con «password authentication failed». Hay que copiar de Neon las URL vigentes. `DATABASE_URL` (dev) sí conecta.
+- [x] `DATABASE_URL_TEST` y `DATABASE_URL_DEMO` de `.env` fallaban con «password authentication failed». Corregidas el 21 nov (nuevos endpoints de Neon); las tres ramas conectan.
 - [ ] `.env` no tiene `SESSION_SECRET`. En local basta con que esté vacío, pero las sesiones se pierden al reiniciar. En el despliegue es obligatorio.
 - [ ] `BASE_URL` de `.env` apunta todavía a la app de Streamlit: los QR generados en local apuntarían allí. Hay que dejarlo vacío en local y usar la URL pública nueva en el despliegue.
 - [ ] Despliegue: Streamlit Community Cloud no puede servir FastAPI + React. Hay que elegir otro servicio para servir Uvicorn por HTTPS, con `npm run build` en la compilación. La URL de Streamlit en la tabla de estado ya no refleja la versión actual.
@@ -51,10 +51,10 @@ Recomendación: **Render, servicio web con Docker, plan gratuito**. Un solo cont
 - [x] 211 pruebas pasan.
 - Para ejecutar `migrar` o `sembrar` contra `demo` desde el servicio: shell del contenedor y `python -m scripts.migrar` (las dependencias ya están en la imagen).
 
-### D2 — Base `demo` en Neon (lo haces tú y yo ejecuto los scripts)
-- [ ] Copiar de Neon las URL vigentes de `test` y `demo` en `.env` (las actuales fallan con «password authentication failed»).
-- [ ] Contra `demo` (con `DATABASE_URL` = `DATABASE_URL_DEMO` en esa ejecución): `migrar`, `sembrar --reiniciar` y `medir_deteccion` → 28/28, 0 falsos positivos.
-- [ ] Correr `pytest` contra la rama `test` de Neon.
+### D2 — Base `demo` en Neon (21 nov 2026)
+- [x] URL vigentes de `test` y `demo` en `.env`: conectan, y las tres ramas son endpoints distintos.
+- [x] Contra `demo`: `migrar` (ya al día), `sembrar --reiniciar` (300 expedientes, 28 alertas, 2420 registros de bitácora) y `medir_deteccion` → cobertura 28/28, precisión 28/28, 0 falsos positivos.
+- [x] `pytest` contra la rama `test` de Neon: 211 pruebas pasan (~24 min por la latencia; en local tarda ~1 min).
 
 ### D3 — Crear el servicio (lo haces tú en el panel de Render)
 - [ ] Nuevo servicio web desde el repositorio de GitHub, rama `main`, entorno Docker, ruta de salud `/api/salud`.
