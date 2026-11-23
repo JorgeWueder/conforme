@@ -32,6 +32,16 @@ class PagoFoto:
 
 
 @dataclass(frozen=True)
+class VecinoFoto:
+    """Otro expediente del mismo proveedor y área, con orden anterior a la del evaluado."""
+    expediente_id: int
+    codigo: str
+    fecha_orden: date
+    monto: Decimal
+    descripcion: str
+
+
+@dataclass(frozen=True)
 class FotoExpediente:
     expediente_id: int
     codigo: str
@@ -43,6 +53,16 @@ class FotoExpediente:
     conformidad: ConformidadFoto | None = None
     entregables: tuple[EntregableFoto, ...] = ()
     pagos: tuple[PagoFoto, ...] = ()
+    # Datos para las reglas entre expedientes (R6, R7) y de fechas (R8).
+    descripcion: str = ""
+    proveedor_id: int | None = None
+    proveedor: str = ""
+    fecha_requerimiento: date | None = None
+    fecha_inicio_prestacion: date | None = None
+    # Expedientes del mismo proveedor y área con (fecha de orden, id) anterior al
+    # de este, dentro de normativa.VENTANA_MAXIMA_ENTRE_EXPEDIENTES_DIAS. Cada regla
+    # aplica su propia ventana.
+    previos_mismo_proveedor: tuple[VecinoFoto, ...] = ()
 
 
 @dataclass(frozen=True)

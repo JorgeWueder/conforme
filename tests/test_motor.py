@@ -35,12 +35,13 @@ def test_caso_estrella_muestra_exactamente_r1_r2_y_r4(sesion_sembrada):
 
 def test_detecta_todas_las_anomalias_sembradas_sin_falsos_positivos(sesion_sembrada):
     m = medir(sesion_sembrada)
-    assert m["sembradas"] == 28  # 25 repartidas + 3 del caso estrella
+    assert m["sembradas"] == 42  # 39 repartidas + 3 del caso estrella
     assert m["no_detectadas"] == []
     assert m["falsos_positivos"] == []
-    assert m["detectadas"] == m["alertas"] == 28
+    assert m["detectadas"] == m["alertas"] == 42
     assert m["por_regla"] == {"R1": (6, 6), "R2": (6, 6), "R3": (5, 5),
-                              "R4": (6, 6), "R5": (5, 5)}
+                              "R4": (6, 6), "R5": (5, 5), "R6": (4, 4),
+                              "R7": (5, 5), "R8": (5, 5)}
 
 
 def test_reevaluar_no_duplica(sesion_sembrada):

@@ -152,10 +152,10 @@ def test_evidencia_de_otra_area_no_se_entrega(sesion_sembrada):
 
 def test_alertas_visibles_segun_el_alcance(sesion_sembrada):
     s = sesion_sembrada
-    assert len(repositorio.listar_alertas(s, actor_de(s, "tes1"))) == 28
-    assert len(repositorio.listar_alertas(s, actor_de(s, "oci1"))) == 28
+    assert len(repositorio.listar_alertas(s, actor_de(s, "tes1"))) == 42
+    assert len(repositorio.listar_alertas(s, actor_de(s, "oci1"))) == 42
     propias = repositorio.listar_alertas(s, actor_de(s, "inf1"))
-    assert 3 <= len(propias) < 28
+    assert 3 <= len(propias) < 42
     assert {a["area_sigla"] for a in propias} == {"INF"}
 
 

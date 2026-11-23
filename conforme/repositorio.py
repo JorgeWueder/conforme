@@ -247,6 +247,7 @@ def crear_expediente(
             "resumen": f"{len(limpios)} entregables cargados ({origen_entregables}).",
         },
     )
+    motor.sincronizar(sesion, [expediente.id])  # R6 y R7 miran los expedientes anteriores
     return expediente.id
 
 

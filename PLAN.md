@@ -1,5 +1,27 @@
 # Plan — MVP "Conforme" (hackathon, entrega 25 nov 2026)
 
+## Reglas R6–R8 para el Desafío 2 (23 nov 2026)
+
+Las bases del desafío piden detectar patrones entre expedientes (proveedores recurrentes, compras similares próximas en el tiempo) y fechas incoherentes. Se añadieron tres reglas, todas de severidad media (configurable en `normativa.py`):
+- **R6 Proveedor recurrente:** el mismo proveedor en 3 o más expedientes de la misma área con órdenes dentro de 90 días.
+- **R7 Compras similares sucesivas:** misma prestación (misma descripción, sin distinguir mayúsculas ni espacios), mismo proveedor y misma área, 2 o más con órdenes dentro de 60 días. Señal de posible fraccionamiento; no compara con ningún umbral de monto.
+- **R8 Fechas incoherentes:** orden anterior al requerimiento, entrega anterior a la orden o al inicio de la prestación, conformidad anterior a la entrega, pago anterior a la orden. La aplicación ya rechaza casi todas al registrarlas, así que R8 detecta datos que entraron o cambiaron por otro camino; la entrega anterior al inicio de la prestación no se validaba antes.
+
+Decisiones de diseño:
+- R6 y R7 alertan solo en el expediente que alcanza el umbral (el último de la serie, por fecha de orden y luego por id). Una alerta nunca depende de expedientes posteriores, así no queda desactualizada. Consecuencia: si se registra un expediente con fecha de orden anterior a otros, estos no se reevalúan solos; «Reevaluar reglas» sí los alcanza.
+- `crear_expediente` ahora llama al motor (antes solo lo hacían conformidad y pago), para que R6 y R7 salten al registrar el expediente.
+- El motor carga, para cada expediente evaluado, los anteriores del mismo proveedor y área aunque no se estén evaluando (`motor._previos_mismo_proveedor`), de modo que reevaluar uno solo da el mismo resultado que evaluar todos.
+- Persona implicada: el solicitante en R6, R7 y en la orden anterior al requerimiento; quien dio la conformidad o registró el pago en el resto de R8.
+- `migraciones/005_reglas_r6_r8.sql` amplía el CHECK de `alerta.regla`. Hay que aplicarla en cada base (`python -m scripts.migrar`).
+- Umbrales y ventanas de R6 y R7: **POR VERIFICAR**. Son de trabajo, no vienen del Reglamento. Se eligieron midiendo los datos sembrados: con «mismo proveedor y área, 3 en 90 días» y «misma descripción, proveedor y área, 2 en 60 días» no hay coincidencias naturales; con «misma descripción y área, sin exigir el mismo proveedor» aparecían decenas de coincidencias naturales (48 con 30 días y 2 compras) y habría inundado de falsos positivos.
+- Siembra (azar propio, no cambia lo generado para R1–R5: mismos 246 conformidades, 207 pagos y 901 entregables): 4 series para R6, 5 pares para R7 y 5 casos para R8 (2 entregas antes del inicio, 2 conformidades antes de la entrega, 1 orden antes del requerimiento). Cada serie usa un proveedor sin otros expedientes en esa área. Los expedientes de la demo (`EXP-2026-0016`, `-0066`, `-0232`, `-0295` y el caso estrella) no se tocan. Total sembrado: 42 anomalías y 42 alertas, 2434 registros de bitácora.
+- Límites: R7 compara texto exacto normalizado, no similitud; no hay coincidencia con sinónimos. R6 y R7 no ven repeticiones entre áreas distintas (por diseño: la señal es la repetición dentro de una misma área).
+
+Verificado el 23 nov 2026 contra un PostgreSQL local desechable: `migrar`, `sembrar --reiniciar` y `medir_deteccion` → cobertura 42/42, precisión 42/42, 0 falsos positivos (R1 6, R2 6, R3 5, R4 6, R5 5, R6 4, R7 5, R8 5). `pytest`: 242 pruebas pasan (30 nuevas: `test_r6.py`, `test_r7.py`, `test_r8.py`, `test_motor_entre_expedientes.py`, dos en `test_generador.py` y cifras actualizadas).
+- [ ] Sin hacer: aplicar `migrar` y `sembrar --reiniciar` en las ramas de Neon (dev, test y demo) y en Render; no se tocó ninguna base remota. El código nuevo falla al crear alertas R6–R8 en una base sin la migración 005.
+- [ ] No probado en el navegador: cómo se ven las alertas R6–R8 en la bandeja y el detalle (la interfaz lee el nombre de la regla de la API, así que no requirió cambios).
+- [ ] Pendiente de la lista del desafío: panel de indicadores, asignación de alertas y acciones correctivas, reporte de trazabilidad exportable y etapa previa del expediente (requerimiento y modificaciones).
+
 ## Migración a React
 
 La interfaz del repositorio se sirve con React y Vite. FastAPI reutiliza el repositorio, los permisos, las reglas R1–R5 y el sello de conformidad en Python. Las instrucciones vigentes están en `README.md`. Los apartados por fase documentan la implementación y el despliegue anteriores en Streamlit.

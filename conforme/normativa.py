@@ -20,6 +20,24 @@ PENALIDAD_TOLERANCIA = Decimal("0.01")       # diferencia que no se alerta
 # Días calendario máximos entre la entrega real y la conformidad.
 CONFORMIDAD_PLAZO_MAXIMO_DIAS = 7
 
+# --- Recurrencia de proveedor (R6). POR VERIFICAR: umbrales de trabajo, no normativos. ---
+# Alerta si el mismo proveedor figura en al menos R6_MINIMO_EXPEDIENTES expedientes
+# del mismo área (contando el que se evalúa) con órdenes dentro de R6_VENTANA_DIAS días.
+R6_MINIMO_EXPEDIENTES = 3
+R6_VENTANA_DIAS = 90
+
+# --- Compras similares sucesivas (R7). POR VERIFICAR: umbrales de trabajo. ----
+# Alerta si el mismo proveedor y el mismo área repiten la misma prestación (misma
+# descripción, sin distinguir mayúsculas ni espacios) en al menos R7_MINIMO_EXPEDIENTES
+# expedientes con órdenes dentro de R7_VENTANA_DIAS días. Es una señal de posible
+# fraccionamiento: no se compara con ningún umbral de monto del Reglamento.
+R7_MINIMO_EXPEDIENTES = 2
+R7_VENTANA_DIAS = 60
+
+# Ventana más amplia que necesitan las reglas entre expedientes (el motor la usa
+# para cargar los expedientes anteriores del mismo proveedor y área).
+VENTANA_MAXIMA_ENTRE_EXPEDIENTES_DIAS = max(R6_VENTANA_DIAS, R7_VENTANA_DIAS)
+
 # --- Severidades (propuesta del equipo, configurable). -----------------------
 SEVERIDAD_ALTA = "alta"
 SEVERIDAD_MEDIA = "media"
@@ -29,6 +47,9 @@ SEVERIDAD_POR_REGLA = {
     "R3": SEVERIDAD_MEDIA,
     "R4": SEVERIDAD_ALTA,
     "R5": SEVERIDAD_ALTA,
+    "R6": SEVERIDAD_MEDIA,
+    "R7": SEVERIDAD_MEDIA,
+    "R8": SEVERIDAD_MEDIA,
 }
 NOMBRE_REGLA = {
     "R1": "Entregable sin evidencia",
@@ -36,6 +57,9 @@ NOMBRE_REGLA = {
     "R3": "Conformidad tardía",
     "R4": "Solicitante y conformante son la misma persona",
     "R5": "Pago sin conformidad previa",
+    "R6": "Proveedor recurrente en la misma área",
+    "R7": "Compras similares sucesivas al mismo proveedor",
+    "R8": "Fechas incoherentes en el expediente",
 }
 
 _CENTIMOS = Decimal("0.01")

@@ -1,4 +1,4 @@
-"""Motor de reglas: arma la foto de cada expediente, evalúa R1–R5 y sincroniza
+"""Motor de reglas: arma la foto de cada expediente, evalúa R1–R8 y sincroniza
 la tabla `alerta`. Sin aprendizaje automático: cada alerta explica sus cifras.
 
 Es idempotente: la clave única (expediente, regla, clave) impide duplicados.
@@ -9,20 +9,21 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Callable
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
 from conforme import bitacora, normativa
 from conforme.modelos import (
     ESTADO_ABIERTA, ESTADO_CERRADA, Alerta, Conformidad, ConformidadEntregable,
-    Entregable, Evidencia, Expediente, Pago, Persona,
+    Entregable, Evidencia, Expediente, Pago, Persona, Proveedor,
 )
 from conforme.reglas import (
     r1_sin_evidencia, r2_penalidad, r3_conformidad_tardia, r4_misma_persona,
-    r5_pago_sin_conformidad,
+    r5_pago_sin_conformidad, r6_recurrencia_proveedor, r7_compras_sucesivas,
+    r8_fechas_incoherentes,
 )
 from conforme.reglas.modelo import (
-    AlertaPropuesta, ConformidadFoto, EntregableFoto, FotoExpediente, PagoFoto,
+    AlertaPropuesta, ConformidadFoto, EntregableFoto, FotoExpediente, PagoFoto, VecinoFoto,
 )
 
 REGLAS = (
@@ -31,6 +32,9 @@ REGLAS = (
     r3_conformidad_tardia.evaluar,
     r4_misma_persona.evaluar,
     r5_pago_sin_conformidad.evaluar,
+    r6_recurrencia_proveedor.evaluar,
+    r7_compras_sucesivas.evaluar,
+    r8_fechas_incoherentes.evaluar,
 )
 
 
@@ -79,21 +83,60 @@ def cargar_fotos(sesion: Session, expediente_ids: list[int] | None = None) -> li
     )):
         pagos[f.expediente_id].append(PagoFoto(f.id, f.fecha_pago, f.monto, f.registrado_por))
 
+    expedientes = list(sesion.execute(acotar(
+        select(
+            Expediente.id, Expediente.codigo, Expediente.monto, Expediente.fecha_orden,
+            Expediente.plazo_dias, Expediente.fecha_entrega_real, Expediente.solicitante_id,
+            Expediente.descripcion, Expediente.proveedor_id, Expediente.area_id,
+            Expediente.fecha_requerimiento, Expediente.fecha_inicio_prestacion,
+            Proveedor.razon_social,
+        ).join(Proveedor, Proveedor.id == Expediente.proveedor_id)
+        .order_by(Expediente.id),
+        Expediente.id,
+    )))
+    previos = _previos_mismo_proveedor(sesion, expedientes, expediente_ids is None)
+
     return [
         FotoExpediente(
             expediente_id=x.id, codigo=x.codigo, monto=x.monto, fecha_orden=x.fecha_orden,
             plazo_dias=x.plazo_dias, fecha_entrega_real=x.fecha_entrega_real,
             solicitante_id=x.solicitante_id, conformidad=conformidades.get(x.id),
             entregables=tuple(entregables.get(x.id, ())), pagos=tuple(pagos.get(x.id, ())),
+            descripcion=x.descripcion, proveedor_id=x.proveedor_id, proveedor=x.razon_social,
+            fecha_requerimiento=x.fecha_requerimiento,
+            fecha_inicio_prestacion=x.fecha_inicio_prestacion,
+            previos_mismo_proveedor=previos.get(x.id, ()),
         )
-        for x in sesion.execute(acotar(
-            select(
-                Expediente.id, Expediente.codigo, Expediente.monto, Expediente.fecha_orden,
-                Expediente.plazo_dias, Expediente.fecha_entrega_real, Expediente.solicitante_id,
-            ).order_by(Expediente.id),
-            Expediente.id,
-        ))
+        for x in expedientes
     ]
+
+
+def _previos_mismo_proveedor(sesion: Session, objetivos, todos: bool) -> dict[int, tuple[VecinoFoto, ...]]:
+    """Para cada expediente, los del mismo proveedor y área con (fecha de orden, id)
+    anterior y a no más de la ventana máxima de días. Las reglas entre expedientes
+    (R6, R7) necesitan ver más allá de los expedientes que se evalúan."""
+    if not objetivos:
+        return {}
+    consulta = select(
+        Expediente.id, Expediente.codigo, Expediente.monto, Expediente.fecha_orden,
+        Expediente.descripcion, Expediente.proveedor_id, Expediente.area_id,
+    )
+    if not todos:
+        pares = {(x.proveedor_id, x.area_id) for x in objetivos}
+        consulta = consulta.where(tuple_(Expediente.proveedor_id, Expediente.area_id).in_(pares))
+    grupos = defaultdict(list)
+    for f in sesion.execute(consulta):
+        grupos[f.proveedor_id, f.area_id].append(f)
+    maximo = normativa.VENTANA_MAXIMA_ENTRE_EXPEDIENTES_DIAS
+    resultado = {}
+    for x in objetivos:
+        resultado[x.id] = tuple(
+            VecinoFoto(v.id, v.codigo, v.fecha_orden, v.monto, v.descripcion)
+            for v in sorted(grupos[x.proveedor_id, x.area_id], key=lambda v: (v.fecha_orden, v.id))
+            if (v.fecha_orden, v.id) < (x.fecha_orden, x.id)
+            and (x.fecha_orden - v.fecha_orden).days <= maximo
+        )
+    return resultado
 
 
 def sincronizar(

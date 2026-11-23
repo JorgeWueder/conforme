@@ -38,8 +38,9 @@ def _n_evidencias(conjunto):
 def test_anomalias_sembradas_por_regla():
     c = generador.generar()
     por_regla = Counter(a["regla"] for a in c["anomalias"])
-    # 5 por regla + R1, R2 y R4 del caso estrella
-    assert por_regla == {"R1": 6, "R2": 6, "R3": 5, "R4": 6, "R5": 5}
+    # 5 por regla + R1, R2 y R4 del caso estrella; R6: 4 series; R7: 5 pares; R8: 5
+    assert por_regla == {"R1": 6, "R2": 6, "R3": 5, "R4": 6, "R5": 5,
+                         "R6": 4, "R7": 5, "R8": 5}
     parejas = [(a["expediente_codigo"], a["regla"]) for a in c["anomalias"]]
     assert len(parejas) == len(set(parejas))
     assert sorted(r for cod, r in parejas if cod == caso_estrella.CODIGO) == ["R1", "R2", "R4"]
@@ -120,7 +121,30 @@ def test_siembra_en_base(sesion_sembrada):
     assert contar("conformidad_entregable") == sum(len(x["items"]) for x in c["conformidades"])
     assert contar("evidencia") == _n_evidencias(c)
     assert contar("pago") == 207
-    assert contar("anomalia_sembrada") == 28
-    assert contar("alerta") == 28
+    assert contar("anomalia_sembrada") == 42
+    assert contar("alerta") == 42
     # + una "alerta.generada" por alerta + una "conformidad.sellada" por conformidad
-    assert contar("bitacora") == len(c["eventos"]) + 28 + 246
+    assert contar("bitacora") == len(c["eventos"]) + 42 + 246
+
+
+def test_r6_a_r8_no_tocan_los_expedientes_de_la_demo_ni_el_caso_estrella():
+    c = generador.generar()
+    marcados = {a["expediente_codigo"] for a in c["anomalias"] if a["regla"] in ("R6", "R7", "R8")}
+    assert marcados.isdisjoint(generador._EXPEDIENTES_DE_DEMO | {caso_estrella.CODIGO})
+    por_codigo = {x["codigo"]: x for x in c["expedientes"]}
+    # el PDF de ejemplo de la demo coincide con EXP-2026-0295 (servicio de limpieza, 15 días)
+    assert por_codigo["EXP-2026-0295"]["descripcion"].startswith("Servicio de limpieza")
+    assert por_codigo["EXP-2026-0295"]["plazo_dias"] == 15
+
+
+def test_las_series_de_r6_y_r7_usan_un_proveedor_exclusivo_del_area():
+    """Sin esto aparecerían coincidencias no sembradas (falsos positivos)."""
+    c = generador.generar()
+    por_codigo = {x["codigo"]: x for x in c["expedientes"]}
+    for a in c["anomalias"]:
+        if a["regla"] not in ("R6", "R7"):
+            continue
+        exp = por_codigo[a["expediente_codigo"]]
+        mismos = [x for x in c["expedientes"]
+                  if x["proveedor_ruc"] == exp["proveedor_ruc"] and x["area_sigla"] == exp["area_sigla"]]
+        assert len(mismos) == (3 if a["regla"] == "R6" else 2), a

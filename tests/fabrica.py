@@ -7,7 +7,9 @@ con evidencia en todo. Es decir, un expediente que no debe alertar.
 from datetime import date
 from decimal import Decimal
 
-from conforme.reglas.modelo import ConformidadFoto, EntregableFoto, FotoExpediente, PagoFoto
+from conforme.reglas.modelo import (
+    ConformidadFoto, EntregableFoto, FotoExpediente, PagoFoto, VecinoFoto,
+)
 
 SOLICITANTE, CONFORMANTE, TESORERO = 1, 2, 3
 
@@ -22,6 +24,10 @@ def entregable(numero=1, cumplido=True, n_evidencias=1):
 
 def pago(id=1, fecha=date(2026, 9, 30), monto="48000.00"):
     return PagoFoto(id, fecha, Decimal(monto), TESORERO)
+
+
+def vecino(id, codigo, fecha_orden, monto="10000.00", descripcion="Servicio de limpieza") -> VecinoFoto:
+    return VecinoFoto(id, codigo, fecha_orden, Decimal(monto), descripcion)
 
 
 def foto(**cambios) -> FotoExpediente:

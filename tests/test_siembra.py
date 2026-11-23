@@ -17,4 +17,4 @@ def test_dos_siembras_dejan_la_misma_huella(sesion):
     vaciar(sesion)
     segunda = _huella(sesion)
     assert primera == segunda
-    assert primera[0]["alertas"] == primera[0]["anomalias"] == 28
+    assert primera[0]["alertas"] == primera[0]["anomalias"] == 42

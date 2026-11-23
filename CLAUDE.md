@@ -26,7 +26,7 @@ Configuración en `.env` (ver `.env.example`). `DATABASE_URL_TEST` debe ser una 
 - `app.py`: FastAPI, protección de `/api` (encabezado `X-Conforme`, sin CORS), errores y entrega de `frontend/dist`. `conforme/api.py`: rutas HTTP y sesión en cookie firmada con `itsdangerous`.
 - `conforme/repositorio.py`: **única** puerta a los datos. Toda función recibe `actor` y aplica `conforme/permisos.py` en la consulta. Las rutas de la API no usan SQLAlchemy directamente.
 - `conforme/bitacora.py`: bitácora encadenada por hash (`registrar`, `registrar_lote`, `verificar_cadena`). La línea de tiempo de un expediente es la bitácora filtrada.
-- `conforme/reglas/`: una función pura por regla (R1–R5), `motor.py` (evalúa y sincroniza la tabla `alerta`, idempotente) y `semaforo.py`. Parámetros normativos en `conforme/normativa.py`.
+- `conforme/reglas/`: una función pura por regla (R1–R8; R6 y R7 miran otros expedientes del mismo proveedor y área), `motor.py` (evalúa y sincroniza la tabla `alerta`, idempotente) y `semaforo.py`. Parámetros normativos en `conforme/normativa.py`.
 - `datos/generador.py`: datos con semilla fija, sin tocar la base. `scripts/sembrar.py` los inserta.
 - `datos/caso_estrella.py`: caso de demo `EXP-2026-0300`.
 - `migraciones/NNN_*.sql`: el esquema real. `conforme/modelos.py` lo refleja.

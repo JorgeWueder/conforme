@@ -103,6 +103,15 @@ _ENTREGABLES_BIEN = [
 # ATRASO_OK = entrega tardía con la penalidad completa: NO debe alertar.
 _PLAN_ANOMALIAS = (["R1"] * 5 + ["R2"] * 5 + ["R3"] * 5 + ["R4"] * 5
                    + ["R5A"] * 3 + ["R5B"] * 2 + ["ATRASO_OK"] * 5)
+# Patrones entre expedientes (R6, R7) y fechas incoherentes (R8) que se siembran aparte,
+# con su propio generador de azar, para que el resto de los datos no cambie.
+_N_SERIES_R6 = 4        # 3 expedientes del mismo proveedor y área en pocos días
+_N_PARES_R7 = 5         # 2 compras de lo mismo, mismo proveedor y área
+_N_FECHAS_R8 = {"entrega-antes-de-inicio": 2, "conformidad-antes-de-entrega": 2,
+                "orden-antes-de-requerimiento": 1}
+# Expedientes que la demo usa tal cual (conformidad pendiente, PDF de ejemplo): no se tocan.
+_EXPEDIENTES_DE_DEMO = frozenset(
+    f"EXP-2026-{n:04d}" for n in (16, 66, 232, 295))
 _PROPORCION_CON_CONFORMIDAD = 0.88
 _PROPORCION_CON_PAGO = 0.80
 
@@ -366,6 +375,138 @@ def _fase_2(rng: random.Random, generados: list[dict], estrella: dict,
             "anomalias": anomalias, "eventos": eventos}
 
 
+def _dias(n: int) -> str:
+    return "1 día" if n == 1 else f"{n} días"
+
+
+def _clave(exp: dict) -> tuple:
+    return (exp["fecha_orden"], exp["codigo"])
+
+
+def _sembrar_patrones(rng: random.Random, generados: list[dict], todos: list[dict],
+                      proveedores: list[dict]) -> list[dict]:
+    """R6 y R7: reasigna proveedor (y descripción, en R7) de expedientes limpios.
+
+    Cada serie usa un proveedor que no tiene otros expedientes en esa área, para que
+    no aparezcan coincidencias que no se sembraron. La alerta cae en el último
+    expediente de la serie (orden por fecha de orden y código), como en el motor."""
+    usados_pares = {(x["proveedor_ruc"], x["area_sigla"]) for x in todos}
+    tomados: set[str] = set(_EXPEDIENTES_DE_DEMO)
+    por_area: dict[str, list[dict]] = {}
+    for x in sorted(generados, key=_clave):
+        por_area.setdefault(x["area_sigla"], []).append(x)
+    areas = sorted(por_area)
+    anomalias = []
+
+    def proveedor_libre(sigla: str) -> str:
+        libres = [p["ruc"] for p in proveedores if (p["ruc"], sigla) not in usados_pares]
+        ruc = rng.choice(libres)
+        usados_pares.add((ruc, sigla))
+        return ruc
+
+    def candidatos(sigla, apto):
+        lista = [x for x in por_area[sigla] if x["codigo"] not in tomados]
+        inicios = lista[:]
+        rng.shuffle(inicios)
+        for base in inicios:
+            yield base, [x for x in lista if apto(base, x)]
+
+    ventana_serie = normativa.R6_VENTANA_DIAS - 10   # holgura frente al límite
+    rng.shuffle(areas)
+    series = 0
+    for sigla in areas:
+        if series == _N_SERIES_R6:
+            break
+        for base, cerca in candidatos(
+                sigla, lambda b, x: 0 <= (x["fecha_orden"] - b["fecha_orden"]).days <= ventana_serie):
+            distintas = {}
+            for x in cerca:
+                distintas.setdefault(x["descripcion"], x)
+            if len(distintas) < normativa.R6_MINIMO_EXPEDIENTES or distintas[base["descripcion"]] is not base:
+                continue
+            otras = [x for d, x in distintas.items() if d != base["descripcion"]]
+            serie = sorted([base] + rng.sample(otras, normativa.R6_MINIMO_EXPEDIENTES - 1), key=_clave)
+            ruc = proveedor_libre(sigla)
+            for x in serie:
+                x["proveedor_ruc"] = ruc
+                tomados.add(x["codigo"])
+            ultimo = serie[-1]
+            dias = (ultimo["fecha_orden"] - serie[0]["fecha_orden"]).days
+            anomalias.append({
+                "expediente_codigo": ultimo["codigo"], "regla": "R6",
+                "nota": f"Proveedor repetido en {', '.join(x['codigo'] for x in serie)} "
+                        f"({dias} días entre la primera y la última orden).",
+            })
+            series += 1
+            break
+    if series < _N_SERIES_R6:
+        raise RuntimeError("No hay series de expedientes para sembrar R6.")
+
+    ventana_par = normativa.R7_VENTANA_DIAS - 10
+    rng.shuffle(areas)
+    pares = 0
+    while pares < _N_PARES_R7:
+        avance = False
+        for sigla in areas:
+            if pares == _N_PARES_R7:
+                break
+            for base, cerca in candidatos(
+                    sigla, lambda b, x: (x["tipo"] == b["tipo"] and x is not b
+                                         and abs((x["fecha_orden"] - b["fecha_orden"]).days) <= ventana_par)):
+                if not cerca:
+                    continue
+                par = sorted([base, rng.choice(cerca)], key=_clave)
+                ruc = proveedor_libre(sigla)
+                par[1]["descripcion"] = par[0]["descripcion"]
+                for x in par:
+                    x["proveedor_ruc"] = ruc
+                    tomados.add(x["codigo"])
+                anomalias.append({
+                    "expediente_codigo": par[1]["codigo"], "regla": "R7",
+                    "nota": f"Misma prestación contratada en {par[0]['codigo']} y {par[1]['codigo']} "
+                            "al mismo proveedor.",
+                })
+                pares += 1
+                avance = True
+                break
+        if not avance:
+            raise RuntimeError("No hay pares de expedientes para sembrar R7.")
+    return anomalias
+
+
+def _sembrar_fechas(rng: random.Random, generados: list[dict], fase_2: dict,
+                    excluidos: set[str]) -> list[dict]:
+    """R8: deja fechas incoherentes en expedientes ya conformados, como si los datos
+    hubieran entrado o cambiado por fuera de la aplicación (que las rechaza)."""
+    por_codigo = {x["codigo"]: x for x in generados}
+    elegibles = sorted(c["expediente_codigo"] for c in fase_2["conformidades"]
+                       if c["expediente_codigo"] in por_codigo
+                       and c["expediente_codigo"] not in excluidos)
+    rng.shuffle(elegibles)
+    conformidad_de = {c["expediente_codigo"]: c for c in fase_2["conformidades"]}
+    evento_de = {e["expediente_codigo"]: e for e in fase_2["eventos"]
+                 if e["accion"] == "conformidad.registrada"}
+    anomalias = []
+    for tipo, cantidad in _N_FECHAS_R8.items():
+        for _ in range(cantidad):
+            codigo = elegibles.pop()
+            exp = por_codigo[codigo]
+            diferencia = rng.randint(1, 3)
+            if tipo == "entrega-antes-de-inicio":
+                exp["fecha_inicio_prestacion"] = exp["fecha_entrega_real"] + timedelta(days=diferencia)
+                nota = "La prestación empieza después de la entrega real."
+            elif tipo == "conformidad-antes-de-entrega":
+                nueva = exp["fecha_entrega_real"] - timedelta(days=diferencia)
+                conformidad_de[codigo]["fecha_conformidad"] = nueva
+                evento_de[codigo]["detalle"]["fecha_conformidad"] = nueva
+                nota = f"Conformidad {_dias(diferencia)} antes de la entrega real."
+            else:
+                exp["fecha_requerimiento"] = exp["fecha_orden"] + timedelta(days=diferencia)
+                nota = f"Requerimiento {_dias(diferencia)} después de la orden."
+            anomalias.append({"expediente_codigo": codigo, "regla": "R8", "nota": nota})
+    return anomalias
+
+
 def generar(semilla: int = SEMILLA) -> dict:
     rng = random.Random(semilla)
     fake = Faker("es_MX")
@@ -437,9 +578,17 @@ def generar(semilla: int = SEMILLA) -> dict:
     expedientes.append(estrella)
     eventos.extend(_eventos_iniciales(rng, estrella, por_area["LOG"]))
 
+    # R6 y R7 solo cambian proveedor y descripción, y R8 solo fechas ya generadas, con
+    # azar propio: lo demás (y las anomalías de R1–R5) no cambia.
+    patrones = _sembrar_patrones(random.Random(semilla + 3), expedientes[:-1], expedientes,
+                                 proveedores)
+
     # F2 usa su propio generador de azar: así los datos de F1 no cambian.
     fase_2 = _fase_2(random.Random(semilla + 2), expedientes[:-1], estrella,
                      por_area, dni_por_username)
+    excluidos = {a["expediente_codigo"] for a in patrones + fase_2["anomalias"]}
+    excluidos |= _EXPEDIENTES_DE_DEMO
+    fechas = _sembrar_fechas(random.Random(semilla + 4), expedientes[:-1], fase_2, excluidos)
     eventos.extend(fase_2["eventos"])
 
     # La bitácora se encadena en orden cronológico; a igual momento se respeta
@@ -456,7 +605,7 @@ def generar(semilla: int = SEMILLA) -> dict:
         "entregables": fase_2["entregables"],
         "conformidades": fase_2["conformidades"],
         "pagos": fase_2["pagos"],
-        "anomalias": fase_2["anomalias"],
+        "anomalias": fase_2["anomalias"] + patrones + fechas,
         "eventos": eventos,
         "sal_password": rng.randbytes(16).hex(),
     }

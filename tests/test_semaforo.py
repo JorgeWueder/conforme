@@ -10,6 +10,6 @@ def test_colores():
 
 
 def test_cada_regla_tiene_severidad_y_nombre():
-    assert set(normativa.SEVERIDAD_POR_REGLA) == {"R1", "R2", "R3", "R4", "R5"}
+    assert set(normativa.SEVERIDAD_POR_REGLA) == {"R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"}
     assert set(normativa.NOMBRE_REGLA) == set(normativa.SEVERIDAD_POR_REGLA)
     assert set(normativa.SEVERIDAD_POR_REGLA.values()) == {"alta", "media"}
