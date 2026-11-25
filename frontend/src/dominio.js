@@ -15,6 +15,8 @@ export const REVISIONES = { descargo: "Descargo", cierre: "Cierre", escalamiento
 export const ACCIONES = {
   "expediente.registrado": "Expediente registrado",
   "orden.emitida": "Orden emitida",
+  "entregable.observado": "Observación registrada",
+  "entregable.subsanado": "Subsanación verificada",
   "conformidad.registrada": "Conformidad registrada",
   "evidencia.adjuntada": "Evidencia adjuntada",
   "pago.registrado": "Pago registrado",
@@ -67,4 +69,11 @@ export function estadoEntregable(item) {
   if (!item.cumplido) return ["No cumplido", "rojo"];
   if (!item.evidencias.length) return ["Cumplido · sin evidencia", "ambar"];
   return ["Cumplido · con evidencia", "verde"];
+}
+
+export function observacionesDeEntrega(eventos) {
+  const subsanaciones = new Map(eventos.filter((e) => e.accion === "entregable.subsanado")
+    .map((e) => [e.detalle.observacion_id, e]));
+  return new Map(eventos.filter((e) => e.accion === "entregable.observado")
+    .map((e) => [e.detalle.entregable_id, { ...e, subsanacion: subsanaciones.get(e.id) }]));
 }

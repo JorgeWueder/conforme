@@ -2,15 +2,15 @@ import { useState } from "react";
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, useAccion, useDatos } from "./api";
-import { fecha, hoy, rutaExpediente, soles } from "./dominio";
+import { fecha, hoy, observacionesDeEntrega, rutaExpediente, soles } from "./dominio";
 import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Volver } from "./ui";
 
 const diasEntre = (desde, hasta) => Math.round((Date.parse(hasta) - Date.parse(desde)) / 86_400_000);
 const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
 
-function revisionPrevia({ entregables, estado, entrega, fechaConformidad, penalidad, calculo }) {
+function revisionPrevia({ entregables, estado, observaciones, entrega, fechaConformidad, penalidad, calculo }) {
   const avisos = [];
-  const sinEvidencia = entregables.filter(({ id }) => estado[id].cumplido && !estado[id].archivos);
+  const sinEvidencia = entregables.filter(({ id }) => estado[id].cumplido && !estado[id].archivos && !observaciones.has(id));
   if (sinEvidencia.length) {
     avisos.push(["R1", `${plural(sinEvidencia.length, "entregable cumplido", "entregables cumplidos")} sin evidencia: n.º ${sinEvidencia.map((e) => e.numero).join(", ")}.`]);
   }
@@ -27,12 +27,12 @@ function revisionPrevia({ entregables, estado, entrega, fechaConformidad, penali
   return avisos;
 }
 
-function Formulario({ expediente, entregables }) {
+function Formulario({ expediente, entregables, observaciones }) {
   const [entregaEditada, setEntrega] = useState(hoy());
   const [fechaConformidad, setFechaConformidad] = useState(hoy());
   const [penalidad, setPenalidad] = useState("0");
   const [estado, setEstado] = useState(() => Object.fromEntries(
-    entregables.map(({ id }) => [id, { cumplido: true, archivos: 0, fotos: 0 }]),
+    entregables.map(({ id }) => [id, { resultado: "", archivos: 0, fotos: 0 }]),
   ));
   const entrega = expediente.fecha_entrega_real ?? entregaEditada;
   const calculo = useDatos(entrega ? `/expedientes/${expediente.id}/penalidad?entrega=${entrega}` : null).datos;
@@ -40,11 +40,19 @@ function Formulario({ expediente, entregables }) {
   const navegar = useNavigate();
 
   const cambiar = (id, cambio) => setEstado((actual) => ({ ...actual, [id]: { ...actual[id], ...cambio } }));
-  const estadoConTotal = Object.fromEntries(Object.entries(estado).map(([id, e]) => [id, { ...e, archivos: e.archivos + e.fotos }]));
+  const estadoConTotal = Object.fromEntries(Object.entries(estado).map(([id, e]) => [id, {
+    ...e, cumplido: e.resultado === "cumplido", archivos: e.archivos + e.fotos,
+  }]));
   const avisos = revisionPrevia({
-    entregables, estado: estadoConTotal, entrega, fechaConformidad, penalidad, calculo,
+    entregables, estado: estadoConTotal, observaciones, entrega, fechaConformidad, penalidad, calculo,
   });
   const fechaInvalida = entrega && fechaConformidad && fechaConformidad < entrega;
+  const sinVerificar = entregables.filter(({ id }) => !estado[id].resultado).length;
+  const faltaEvidenciaSubsanacion = entregables.some(({ id }) => (
+    observaciones.has(id) && estadoConTotal[id].cumplido && !estadoConTotal[id].archivos
+  ));
+  const observacionesSinResolver = [...observaciones.keys()].filter((id) => estado[id].resultado === "no_cumplido").length;
+  const revisionPendiente = sinVerificar || faltaEvidenciaSubsanacion || observacionesSinResolver;
 
   function registrar(evento) {
     evento.preventDefault();
@@ -54,7 +62,7 @@ function Formulario({ expediente, entregables }) {
       const archivos = [...form.getAll(`archivo-${id}`), form.get(`foto-${id}`)].filter((valor) => valor?.name);
       for (const archivo of archivos) data.append("archivos", archivo);
       return {
-        entregable_id: id, cumplido: form.has(`cumplido-${id}`), observacion: form.get(`observacion-${id}`),
+        entregable_id: id, cumplido: form.get(`resultado-${id}`) === "cumplido", observacion: form.get(`observacion-${id}`),
         cantidad_archivos: archivos.length,
       };
     });
@@ -99,15 +107,24 @@ function Formulario({ expediente, entregables }) {
 
         <section className="seccion">
           <h2>2. Entregables</h2>
-          <p className="secundario">Marca cada entregable y adjunta su evidencia en JPG, PNG o PDF, hasta 5 MB por archivo.</p>
+          <p className="secundario">Indica el resultado de cada entregable y adjunta su evidencia en JPG, PNG o PDF, hasta 5 MB por archivo.</p>
           <div className="tarjetas">
             {entregables.map((item) => {
-              const { cumplido, archivos } = estadoConTotal[item.id];
+              const { resultado, cumplido, archivos } = estadoConTotal[item.id];
+              const observacion = observaciones.get(item.id);
+              const subsanacion = observacion && cumplido;
               return (
                 <fieldset className="panel formulario" key={item.id}>
                   <legend>{item.numero}. {item.descripcion}</legend>
-                  <label className="casilla"><input type="checkbox" name={`cumplido-${item.id}`} checked={cumplido}
-                    onChange={(e) => cambiar(item.id, { cumplido: e.target.checked })} /> Cumplido</label>
+                  {observacion && <Aviso tipo="advertencia">{observacion.detalle.resumen}</Aviso>}
+                  <Campo titulo={`Resultado del entregable ${item.numero}`}>
+                    <select name={`resultado-${item.id}`} required value={resultado}
+                      onChange={(e) => cambiar(item.id, { resultado: e.target.value })}>
+                      <option value="" disabled>Por revisar</option>
+                      <option value="cumplido">{observacion ? "Subsanado y cumplido" : "Cumplido"}</option>
+                      <option value="no_cumplido">No cumplido</option>
+                    </select>
+                  </Campo>
                   <div className="rejilla dos">
                     <Campo titulo="Evidencia"><input type="file" name={`archivo-${item.id}`} accept="image/jpeg,image/png,application/pdf" multiple
                       onChange={(e) => cambiar(item.id, { archivos: e.target.files.length })} /></Campo>
@@ -116,9 +133,12 @@ function Formulario({ expediente, entregables }) {
                         onChange={(e) => cambiar(item.id, { fotos: e.target.files.length })} />
                     </label>
                   </div>
-                  <Campo titulo={cumplido ? "Observación (opcional)" : "Motivo del incumplimiento"}>
-                    <input name={`observacion-${item.id}`} /></Campo>
-                  {cumplido && !archivos && <small className="texto-ambar"><CircleAlert size={14} /> Sin evidencia: se generará la alerta R1.</small>}
+                  <Campo titulo={subsanacion ? "Qué verificaste en la subsanación"
+                    : resultado === "no_cumplido" ? "Motivo del incumplimiento" : "Observación (opcional)"}>
+                    <input name={`observacion-${item.id}`} required={Boolean(subsanacion)} /></Campo>
+                  {cumplido && !archivos && <small className="texto-ambar"><CircleAlert size={14} />
+                    {subsanacion ? "Adjunta la evidencia de la subsanación." : "Falta evidencia. Se generará la alerta R1."}
+                  </small>}
                   {cumplido && archivos > 0 && <small className="texto-verde"><CircleCheck size={14} /> {plural(archivos, "archivo", "archivos")} listo{archivos === 1 ? "" : "s"}.</small>}
                 </fieldset>
               );
@@ -128,16 +148,19 @@ function Formulario({ expediente, entregables }) {
 
         <Campo titulo="Observaciones generales (opcional)"><textarea name="observaciones" /></Campo>
 
-        <section className={`panel revision ${avisos.length ? "revision-avisos" : "revision-ok"}`} aria-live="polite">
+        <section className={`panel revision ${revisionPendiente || avisos.length ? "revision-avisos" : "revision-ok"}`} aria-live="polite">
           <h2>3. Antes de guardar</h2>
+          {sinVerificar > 0 && <p>Indica el resultado de {plural(sinVerificar, "entregable pendiente", "entregables pendientes")}.</p>}
+          {faltaEvidenciaSubsanacion && <p>Adjunta los archivos de subsanación para guardar.</p>}
+          {observacionesSinResolver > 0 && <p>Observaciones que quedarán pendientes ({observacionesSinResolver}).</p>}
           {avisos.length ? <>
             <p>Alertas previstas ({avisos.length})</p>
             <ul>{avisos.map(([regla, texto]) => <li key={regla}><strong>{regla}</strong> · {texto}</li>)}</ul>
-          </> : <p><CircleCheck size={16} /> Sin alertas previstas.</p>}
+          </> : !revisionPendiente && <p><CircleCheck size={16} /> Sin alertas previstas.</p>}
         </section>
 
         <EstadoAccion accion={accion} />
-        <div><button className="primario" disabled={accion.pendiente || fechaInvalida}>
+        <div><button className="primario" disabled={accion.pendiente || fechaInvalida || faltaEvidenciaSubsanacion}>
           {accion.pendiente ? "Guardando…" : "Guardar conformidad"}</button></div>
       </form>
     </>
@@ -160,7 +183,8 @@ export function Conformidad() {
           : !recurso.datos.entregables.length ? <Aviso tipo="advertencia">
             Faltan los entregables del expediente. <Link to={`${rutaExpediente(id)}/tdr`}>Revisar TDR</Link>
           </Aviso>
-          : <Formulario key={id} expediente={expediente} entregables={recurso.datos.entregables} />}
+          : <Formulario key={id} expediente={expediente} entregables={recurso.datos.entregables}
+            observaciones={observacionesDeEntrega(recurso.datos.eventos)} />}
       </> : <Carga recurso={recurso} />}
     </>
   );

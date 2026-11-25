@@ -713,6 +713,8 @@ td.celda-texto { min-width: 12rem; }
 .tramite-dine { border-top: 1px solid var(--borde-suave); margin-top: .6rem; padding-top: .6rem; }
 .referencia-regla { font-size: .78rem; }
 .contexto-formulario { border-left: 3px solid var(--dorado); }
+.observacion-entrega { display: grid; justify-items: start; gap: .35rem; padding: .7rem .85rem; border-left: 3px solid var(--dorado); background: var(--superficie-sutil); overflow-wrap: anywhere; }
+.subsanacion-entrega { display: grid; gap: .25rem; border-top: 1px solid var(--borde-suave); padding-top: .55rem; width: 100%; }
 
 /* Próximo paso e índice del expediente */
 .proximo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .8rem; padding: .9rem 1rem; border: 1px solid var(--borde); border-left: 4px solid var(--azul); border-radius: .65rem; background: var(--azul-claro); }

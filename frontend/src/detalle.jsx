@@ -5,7 +5,8 @@ import {
 import { Link, useParams } from "react-router";
 import { api, useAccion, useDatos } from "./api";
 import {
-  ACCIONES, ESTADOS, SEVERIDADES, alertaPendiente, capitalizar, fecha, fechaHora, hoy, nombreAlerta, rutaAlerta, rutaExpediente, soles,
+  ACCIONES, ESTADOS, SEVERIDADES, alertaPendiente, capitalizar, fecha, fechaHora, hoy, nombreAlerta,
+  observacionesDeEntrega, rutaAlerta, rutaExpediente, soles,
 } from "./dominio";
 import {
   Aviso, AvisoNavegacion, Campo, Carga, DatosClave, Encabezado, EstadoAccion,
@@ -33,8 +34,56 @@ function Sello({ conformidad, id }) {
   );
 }
 
-function Entregables({ expediente, conformidad, entregables, actor }) {
+function RegistrarObservacion({ expediente, entregables, recargar }) {
+  const accion = useAccion();
+  function registrar(evento) {
+    evento.preventDefault();
+    const form = evento.currentTarget;
+    const datos = Object.fromEntries(new FormData(form));
+    accion.ejecutar(async () => {
+      await api(`/expedientes/${expediente.id}/observaciones-entrega`, { method: "POST", data: datos });
+      form.reset();
+      recargar();
+      return "Observación registrada.";
+    });
+  }
+  return (
+    <details className="panel desplegable">
+      <summary>Registrar observación</summary>
+      <form className="formulario" onSubmit={registrar}>
+        <Campo titulo="Entregable"><select name="entregable_id" defaultValue="" required>
+          <option value="" disabled>Selecciona el entregable</option>
+          {entregables.map((item) => <option key={item.id} value={item.id}>{item.numero}. {item.descripcion}</option>)}
+        </select></Campo>
+        <Campo titulo="Observación" ayuda="Indica qué falta o qué debe corregirse.">
+          <textarea name="texto" maxLength={1000} required />
+        </Campo>
+        <EstadoAccion accion={accion} />
+        <div><button className="primario" disabled={accion.pendiente}>Guardar observación</button></div>
+      </form>
+    </details>
+  );
+}
+
+function Observacion({ registro }) {
+  const { subsanacion } = registro;
+  return (
+    <div className="observacion-entrega">
+      <Indicador tono={subsanacion ? "verde" : "ambar"}>{subsanacion ? "Subsanado" : "Observación pendiente"}</Indicador>
+      <p>{registro.detalle.resumen}</p>
+      <small>{registro.actor} · {fechaHora(registro.ts)}</small>
+      {subsanacion && <div className="subsanacion-entrega">
+        <strong>Subsanación verificada</strong>
+        <p>{subsanacion.detalle.resumen}</p>
+        <small>{subsanacion.actor} · {fechaHora(subsanacion.ts)}</small>
+      </div>}
+    </div>
+  );
+}
+
+function Entregables({ expediente, conformidad, entregables, observaciones, actor, recargar }) {
   const [mostrar, setMostrar] = useState(false);
+  const porObservar = entregables.filter((item) => !observaciones.has(item.id));
   return (
     <section className="seccion" id="entregables">
       <h2>Entregables y conformidad</h2>
@@ -48,6 +97,9 @@ function Entregables({ expediente, conformidad, entregables, actor }) {
         {actor.rol === "area_usuaria" && entregables.length > 0 && <div className="acciones">
           <Link className="boton" to={`${rutaExpediente(expediente.id)}/tdr`}><FileText size={16} /> Revisar TDR</Link>
         </div>}
+        {actor.rol === "area_usuaria" && porObservar.length > 0 && (
+          <RegistrarObservacion expediente={expediente} entregables={porObservar} recargar={recargar} />
+        )}
       </>}
       {entregables.some((item) => item.evidencias.length > 0) && (
         <label className="casilla"><input type="checkbox" checked={mostrar} onChange={(e) => setMostrar(e.target.checked)} /> Mostrar evidencias</label>
@@ -56,7 +108,8 @@ function Entregables({ expediente, conformidad, entregables, actor }) {
         {entregables.map((item) => (
           <article className="panel ficha" key={item.id}>
             <div className="fila-titulo"><h3>{item.numero}. {item.descripcion}</h3><EstadoEntregable item={item} /></div>
-            {item.observacion && <p className="secundario">Observación: {item.observacion}</p>}
+            {observaciones.has(item.id) && <Observacion registro={observaciones.get(item.id)} />}
+            {item.observacion && !observaciones.get(item.id)?.subsanacion && <p className="secundario">Observación en la conformidad: {item.observacion}</p>}
             {item.cumplido != null && !item.evidencias.length && <small>Sin archivos adjuntos.</small>}
             {item.evidencias.map((archivo) => (
               <div key={archivo.id} className="archivo">
@@ -110,7 +163,7 @@ function AlertasDelExpediente({ expediente, alertas, reglas, actor, recargar }) 
   );
 }
 
-function Pagos({ expediente, conformidad, abiertas, pagos, actor, recargar }) {
+function Pagos({ expediente, conformidad, abiertas, pendientes, pagos, actor, recargar }) {
   const accion = useAccion();
   function registrar(evento) {
     evento.preventDefault();
@@ -138,6 +191,7 @@ function Pagos({ expediente, conformidad, abiertas, pagos, actor, recargar }) {
           <summary>Registrar pago efectuado</summary>
           <form className="formulario" onSubmit={registrar}>
             {abiertas > 0 && <Aviso tipo="advertencia">Hay {abiertas} alertas pendientes de revisión.</Aviso>}
+            {pendientes > 0 && <Aviso tipo="advertencia">Hay observaciones pendientes en los entregables.</Aviso>}
             {!conformidad && <Aviso tipo="advertencia">Si registras este pago sin conformidad previa, se genera la alerta R5.</Aviso>}
             <div className="rejilla tres">
               <Campo titulo="Fecha de pago"><input name="fecha_pago" type="date" defaultValue={hoy()} required /></Campo>
@@ -172,6 +226,7 @@ function LineaDeTiempo({ eventos }) {
               <h3>{ACCIONES[evento.accion] ?? evento.accion}</h3>
               <small>{evento.actor ?? "Sistema"} · Registro n.º {evento.id}</small>
               {evento.detalle?.resumen && <p>{evento.detalle.resumen}</p>}
+              {evento.accion.startsWith("entregable.") && <small>Entregable {evento.detalle.numero}</small>}
               {evento.detalle?.referencia_siaf && <small>Referencia SIAF {evento.detalle.referencia_siaf}</small>}
               {evento.documento_sha256 && <small>{evento.detalle?.documento ?? "Documento"} · SHA-256 <code>{evento.documento_sha256.slice(0, 16)}…</code></small>}
             </div>
@@ -191,7 +246,7 @@ function abrirRegistroPago() {
 }
 
 /** Qué le toca hacer a quien mira el expediente, según su rol y el estado. */
-function Siguiente({ actor, expediente, conformidad, entregables, alertas, pagos }) {
+function Siguiente({ actor, expediente, conformidad, entregables, pendientes, alertas, pagos }) {
   const ruta = rutaExpediente(expediente.id);
   const sinCerrar = alertas.filter(alertaPendiente);
   if (actor.rol === "area_usuaria") {
@@ -200,9 +255,14 @@ function Siguiente({ actor, expediente, conformidad, entregables, alertas, pagos
         acciones={<Link className="boton primario" to={`${ruta}/tdr`}><FileText size={16} /> Revisar TDR</Link>} />;
     }
     if (!conformidad) {
-      return <ProximoPaso titulo="Falta registrar la conformidad"
-        acciones={<Link className="boton primario" to={`${ruta}/conformidad`}><ClipboardCheck size={17} /> Registrar conformidad</Link>}>
-        Revisa cada entregable y adjunta su evidencia.</ProximoPaso>;
+      return <ProximoPaso tono={pendientes ? "advertencia" : "info"}
+        titulo={pendientes ? "Hay entregables observados" : "Falta registrar la conformidad"}
+        acciones={<>
+          <a className="boton" href="#entregables">Revisar entregables</a>
+          <Link className="boton primario" to={`${ruta}/conformidad`}><ClipboardCheck size={17} /> Registrar conformidad</Link>
+        </>}>
+        {pendientes ? "Adjunta la corrección y describe qué verificaste al registrar la conformidad."
+          : "Verifica la prestación y adjunta la evidencia de cada entregable."}</ProximoPaso>;
     }
     const propias = sinCerrar.filter((a) => a.estado === "abierta"
       && [a.persona_implicada_id, a.conformante_id].includes(actor.persona_id));
@@ -215,16 +275,19 @@ function Siguiente({ actor, expediente, conformidad, entregables, alertas, pagos
   }
   if (actor.rol === "tesoreria" && !pagos.length) {
     if (!conformidad) {
-      return <ProximoPaso tono="advertencia" titulo="Falta la conformidad del área usuaria">
+      return <ProximoPaso tono="advertencia" titulo="Falta la conformidad del área usuaria"
+        acciones={pendientes > 0 && <a className="boton" href="#entregables">Ver observaciones</a>}>
         Revisa el sustento antes de tramitar el pago.</ProximoPaso>;
     }
-    return <ProximoPaso tono={sinCerrar.length ? "advertencia" : "info"}
-      titulo={sinCerrar.length ? `${sinCerrar.length} alertas pendientes de revisión` : "Conformidad registrada"}
+    return <ProximoPaso tono={sinCerrar.length || pendientes ? "advertencia" : "info"}
+      titulo={pendientes ? "Hay observaciones pendientes"
+        : sinCerrar.length ? `${sinCerrar.length} alertas pendientes de revisión` : "Conformidad registrada"}
       acciones={<>
+        {pendientes > 0 && <a className="boton" href="#entregables">Ver observaciones</a>}
         {sinCerrar.length > 0 && <a className="boton" href="#alertas"><Bell size={16} /> Ver alertas</a>}
         <button className="primario" onClick={abrirRegistroPago}><Wallet size={16} /> Registrar pago efectuado</button>
       </>}>
-      {sinCerrar.length ? "Revisa las observaciones antes del pago." : "Consulta el devengado en el SIAF."}
+      {sinCerrar.length || pendientes ? "Revisa el sustento antes del pago." : "Consulta el devengado en el SIAF."}
     </ProximoPaso>;
   }
   if (actor.rol !== "area_usuaria" && sinCerrar.length) {
@@ -262,6 +325,8 @@ export function Detalle({ actor }) {
   const cumplidos = entregables.filter((item) => item.cumplido);
   const sinEvidencia = cumplidos.filter((item) => !item.evidencias.length);
   const abiertas = alertas.filter(alertaPendiente).length;
+  const observaciones = observacionesDeEntrega(eventos);
+  const pendientes = [...observaciones.values()].filter((registro) => !registro.subsanacion).length;
   return (
     <>
       <Volver to={expediente.tipo === "bien" ? "/expedientes?tipo=bien" : "/expedientes"}>Expedientes</Volver>
@@ -273,7 +338,7 @@ export function Detalle({ actor }) {
         <EstadoTramite expediente={expediente} conformidad={conformidad} pagos={pagos} />
       </div>
       <AvisoNavegacion />
-      <Siguiente actor={actor} expediente={expediente} conformidad={conformidad} entregables={entregables}
+      <Siguiente actor={actor} expediente={expediente} conformidad={conformidad} entregables={entregables} pendientes={pendientes}
         alertas={alertas} pagos={pagos} />
       <nav className="indice" aria-label="Secciones del expediente">
         <a href="#datos">Datos de la orden</a>
@@ -305,9 +370,11 @@ export function Detalle({ actor }) {
         </p>}
       </section>
       {sinEvidencia.length > 0 && <Aviso tipo="advertencia">Entregables dados por cumplidos sin evidencia: {sinEvidencia.map((e) => e.numero).join(", ")}.</Aviso>}
-      <Entregables expediente={expediente} conformidad={conformidad} entregables={entregables} actor={actor} />
+      <Entregables key={expediente.id} expediente={expediente} conformidad={conformidad} entregables={entregables}
+        observaciones={observaciones} actor={actor} recargar={recurso.recargar} />
       <AlertasDelExpediente expediente={expediente} alertas={alertas} reglas={reglas} actor={actor} recargar={recurso.recargar} />
-      <Pagos expediente={expediente} conformidad={conformidad} abiertas={abiertas} pagos={pagos} actor={actor} recargar={recurso.recargar} />
+      <Pagos expediente={expediente} conformidad={conformidad} abiertas={abiertas} pendientes={pendientes}
+        pagos={pagos} actor={actor} recargar={recurso.recargar} />
       <LineaDeTiempo eventos={eventos} />
     </>
   );

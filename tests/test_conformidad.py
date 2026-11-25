@@ -85,6 +85,42 @@ def test_se_puede_guardar_sin_evidencia_y_eso_genera_r1(sesion_sembrada):
     assert acciones.count("alerta.generada") == 1
 
 
+def test_entregable_observado_se_subsana_con_evidencia_y_queda_sellado(sesion_sembrada):
+    s = sesion_sembrada
+    inf1, tes1 = actor_de(s, "inf1"), actor_de(s, "tes1")
+    exp = _pendiente(s, inf1)
+    entregables = repositorio.listar_entregables(s, inf1, exp["id"])
+    datos = {"entregable_id": entregables[0]["id"], "texto": "Falta el informe con el detalle de los ambientes."}
+    with pytest.raises(PermisoDenegado):
+        repositorio.registrar_observacion_de_entrega(s, tes1, exp["id"], **datos)
+    repositorio.registrar_observacion_de_entrega(s, inf1, exp["id"], **datos)
+    with pytest.raises(ErrorValidacion, match="ya tiene una observación"):
+        repositorio.registrar_observacion_de_entrega(s, inf1, exp["id"], **datos)
+    assert repositorio.obtener_conformidad(s, tes1, exp["id"]) is None
+    assert repositorio.obtener_expediente(s, tes1, exp["id"])["observaciones_pendientes"] == 1
+
+    items = _items(entregables, sin_evidencia={entregables[0]["numero"]})
+    items[0]["observacion"] = "Se verificaron los ambientes declarados en el informe corregido."
+    with pytest.raises(ErrorValidacion, match="está observado"):
+        _registrar(s, inf1, exp, items=items)
+    assert repositorio.obtener_conformidad(s, tes1, exp["id"]) is None
+
+    items[0]["evidencias"] = _items(entregables)[0]["evidencias"]
+    _registrar(s, inf1, exp, items=items)
+    eventos = repositorio.linea_de_tiempo(s, tes1, exp["id"])
+    observacion = next(e for e in eventos if e["accion"] == "entregable.observado")
+    subsanacion = next(e for e in eventos if e["accion"] == "entregable.subsanado")
+    conformidad = next(e for e in eventos if e["accion"] == "conformidad.registrada")
+    assert observacion["id"] < subsanacion["id"] < conformidad["id"]
+    assert subsanacion["detalle"]["observacion_id"] == observacion["id"]
+    assert subsanacion["detalle"]["evidencias"][0]["sha256"] == hashlib.sha256(PDF).hexdigest()
+    assert repositorio.obtener_expediente(s, tes1, exp["id"])["observaciones_pendientes"] == 0
+    registro = repositorio.obtener_conformidad(s, tes1, exp["id"])
+    assert repositorio.consultar_sello(s, registro["codigo_sello"])["integra"]
+    with pytest.raises(ErrorValidacion, match="antes de guardar"):
+        repositorio.registrar_observacion_de_entrega(s, inf1, exp["id"], **datos)
+
+
 def test_una_sola_conformidad_por_expediente(sesion_sembrada):
     s = sesion_sembrada
     inf1 = actor_de(s, "inf1")

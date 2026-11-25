@@ -30,6 +30,8 @@ Las cuentas de demostración son `inf1` (área usuaria), `tes1` (Tesorería) y `
 
 Busca la orden `OS-2026-00300` para revisar el caso de mantenimiento de laboratorio. La conformidad de la demo tiene una evidencia faltante y una penalidad estimada por revisar. El devengado figura como consulta en el SIAF y Tesorería puede registrar la referencia de un pago efectuado.
 
+Para demostrar la corrección antes de la conformidad, abre una orden pendiente como `inf1` (por ejemplo, `OS-2026-00295`). En **Entregables**, registra qué falta en el informe de servicio. Con `tes1`, verifica que el expediente muestra la conformidad pendiente y la observación. Vuelve como `inf1`, elige **Subsanado y cumplido**, adjunta el informe corregido y describe qué verificaste. Guarda la conformidad. El OCI puede seguir la observación, la subsanación y la conformidad en la línea de tiempo y comprobar el sello. [Ruta de servicios de la UNT](https://din.unitru.edu.pe/ruta-de-procesos/) · [Reglamento de Contrataciones Públicas, art. 144](https://www.mef.gob.pe/en/por-instrumento/decreto-supremo/34044-decreto-supremo-n-009-2025-ef/file)
+
 Si ya tienes una base cargada, ejecuta las migraciones para habilitar los campos nuevos. Carga el caso de la UNT con `scripts.sembrar` en una base de demostración vacía.
 
 Las alertas muestran su referencia cuando corresponde. El flujo sigue la [ruta de servicios de la UNT](https://din.unitru.edu.pe/ruta-de-procesos/).

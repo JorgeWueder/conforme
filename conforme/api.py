@@ -235,6 +235,19 @@ class Conformidad(BaseModel):
     items: list[ItemConformidad]
 
 
+class ObservacionEntrega(BaseModel):
+    entregable_id: int
+    texto: str = Field(max_length=1000)
+
+
+@router.post("/expedientes/{expediente_id}/observaciones-entrega", status_code=204)
+def registrar_observacion_de_entrega(
+    expediente_id: int, datos: ObservacionEntrega, sesion: Sesion, actor: UsuarioActual,
+):
+    repositorio.registrar_observacion_de_entrega(sesion, actor, expediente_id, **datos.model_dump())
+    return Response(status_code=204)
+
+
 @router.post("/expedientes/{expediente_id}/conformidad", status_code=201)
 def registrar_conformidad(expediente_id: int, sesion: Sesion, actor: UsuarioActual,
                           datos: Annotated[str, Form()], archivos: Annotated[list[UploadFile] | None, File()] = None):

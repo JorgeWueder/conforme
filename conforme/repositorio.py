@@ -32,6 +32,8 @@ def _nombre(persona=Persona):
 
 _NOMBRE_PERSONA = _nombre()
 _ALERTA_VIGENTE = or_(Alerta.regla != "R4", Alerta.clave != R4_CLAVE_ANTERIOR)
+_ENTREGA_OBSERVADA = "entregable.observado"
+_ENTREGA_SUBSANADA = "entregable.subsanado"
 
 
 def _alertas_sin_cerrar(severidad: str):
@@ -55,6 +57,14 @@ def _fila_expediente(fila) -> dict:
 
 
 def _consulta_expedientes(actor: Actor):
+    observaciones_pendientes = (
+        select(func.count().filter(Bitacora.accion == _ENTREGA_OBSERVADA)
+               - func.count().filter(Bitacora.accion == _ENTREGA_SUBSANADA))
+        .where(Bitacora.expediente_id == Expediente.id,
+               Bitacora.accion.in_((_ENTREGA_OBSERVADA, _ENTREGA_SUBSANADA)))
+        .correlate(Expediente)
+        .scalar_subquery()
+    )
     return (
         select(
             Expediente.id,
@@ -78,6 +88,7 @@ def _consulta_expedientes(actor: Actor):
             Expediente.monto,
             exists().where(Conformidad.expediente_id == Expediente.id).label("tiene_conformidad"),
             exists().where(Pago.expediente_id == Expediente.id).label("tiene_pago"),
+            observaciones_pendientes.label("observaciones_pendientes"),
             _alertas_sin_cerrar(SEVERIDAD_ALTA).label("alertas_altas"),
             _alertas_sin_cerrar(SEVERIDAD_MEDIA).label("alertas_medias"),
         )
@@ -164,10 +175,13 @@ def verificar_integridad(sesion: Session, actor: Actor) -> bitacora.ResultadoVer
 
 # --- F2: alta de expedientes --------------------------------------------------
 
-def _expediente_en_alcance(sesion: Session, actor: Actor, expediente_id: int) -> Expediente:
-    expediente = sesion.execute(
-        select(Expediente).where(Expediente.id == expediente_id, filtro_expedientes(actor))
-    ).scalar_one_or_none()
+def _expediente_en_alcance(
+    sesion: Session, actor: Actor, expediente_id: int, *, bloquear: bool = False,
+) -> Expediente:
+    consulta = select(Expediente).where(Expediente.id == expediente_id, filtro_expedientes(actor))
+    if bloquear:
+        consulta = consulta.with_for_update()
+    expediente = sesion.execute(consulta).scalar_one_or_none()
     if expediente is None:
         raise PermisoDenegado("Expediente inexistente o fuera de tu alcance.")
     return expediente
@@ -268,6 +282,38 @@ def crear_expediente(
 
 # --- F2: entregables, conformidad y evidencias --------------------------------
 
+def _observaciones_de_entrega(sesion: Session, expediente_id: int) -> dict[int, int]:
+    registros = sesion.execute(
+        select(Bitacora.entidad_id, Bitacora.id).where(
+            Bitacora.expediente_id == expediente_id,
+            Bitacora.accion == _ENTREGA_OBSERVADA,
+        )
+    )
+    return {entregable_id: registro_id for entregable_id, registro_id in registros}
+
+
+def registrar_observacion_de_entrega(
+    sesion: Session, actor: Actor, expediente_id: int, *, entregable_id: int, texto: str,
+) -> None:
+    exigir_rol(actor, ROL_AREA_USUARIA)
+    _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
+    if sesion.scalar(select(Conformidad.id).where(Conformidad.expediente_id == expediente_id)):
+        raise ErrorValidacion("Registra la observación antes de guardar la conformidad.")
+    entregable = sesion.scalar(select(Entregable).where(
+        Entregable.id == entregable_id, Entregable.expediente_id == expediente_id,
+    ))
+    if entregable is None:
+        raise ErrorValidacion("El entregable no pertenece a este expediente.")
+    if entregable_id in _observaciones_de_entrega(sesion, expediente_id):
+        raise ErrorValidacion("El entregable ya tiene una observación registrada.")
+    texto = _texto_obligatorio(texto, "La observación")
+    bitacora.registrar(
+        sesion, actor_id=actor.persona_id, accion=_ENTREGA_OBSERVADA,
+        entidad="entregable", entidad_id=entregable.id, expediente_id=expediente_id,
+        detalle={"entregable_id": entregable.id, "numero": entregable.numero, "resumen": texto},
+    )
+
+
 def listar_entregables(sesion: Session, actor: Actor, expediente_id: int) -> list[dict]:
     """Entregables con su estado en la conformidad y sus evidencias (sin el contenido)."""
     _expediente_en_alcance(sesion, actor, expediente_id)
@@ -340,7 +386,7 @@ def registrar_conformidad(
     alerta (R1). `fecha_entrega_real` solo se usa si el expediente no la tiene.
     """
     exigir_rol(actor, ROL_AREA_USUARIA)
-    expediente = _expediente_en_alcance(sesion, actor, expediente_id)
+    expediente = _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
     if sesion.execute(
         select(Conformidad.id).where(Conformidad.expediente_id == expediente.id)
     ).first():
@@ -369,6 +415,11 @@ def registrar_conformidad(
                for a in por_id[e.id].get("evidencias") or []]
         for e in entregables
     }
+    observados = _observaciones_de_entrega(sesion, expediente_id)
+    subsanados = {e.id for e in entregables if e.id in observados and por_id[e.id]["cumplido"]}
+    for e in entregables:
+        if e.id in subsanados and (not archivos[e.id] or not (por_id[e.id].get("observacion") or "").strip()):
+            raise ErrorValidacion(f"El entregable {e.numero} está observado. Adjunta la evidencia y describe qué verificaste.")
 
     ahora = datetime.now(timezone.utc)
     expediente.fecha_entrega_real = entrega
@@ -390,6 +441,7 @@ def registrar_conformidad(
             "resumen": f"{cumplidos} de {len(entregables)} entregables dados por cumplidos.",
         },
     }]
+    subsanaciones = []
     for e in entregables:
         item = por_id[e.id]
         ce = ConformidadEntregable(
@@ -398,6 +450,7 @@ def registrar_conformidad(
         )
         sesion.add(ce)
         sesion.flush()
+        adjuntos = []
         for archivo in archivos[e.id]:
             evidencia = Evidencia(
                 conformidad_entregable_id=ce.id, subido_por=actor.persona_id,
@@ -405,6 +458,7 @@ def registrar_conformidad(
             )
             sesion.add(evidencia)
             sesion.flush()
+            adjuntos.append({"id": evidencia.id, "nombre": evidencia.nombre_archivo, "sha256": evidencia.sha256})
             eventos.append({
                 "ts": ahora, "actor_id": actor.persona_id, "accion": "evidencia.adjuntada",
                 "entidad": "evidencia", "entidad_id": evidencia.id,
@@ -412,7 +466,14 @@ def registrar_conformidad(
                 "detalle": {"documento": archivo["nombre_archivo"], "entregable": e.numero},
                 "documento_sha256": archivo["sha256"],
             })
-    bitacora.registrar_lote(sesion, eventos)
+        if e.id in subsanados:
+            subsanaciones.append({
+                "ts": ahora, "actor_id": actor.persona_id, "accion": _ENTREGA_SUBSANADA,
+                "entidad": "entregable", "entidad_id": e.id, "expediente_id": expediente.id,
+                "detalle": {"observacion_id": observados[e.id], "entregable_id": e.id, "numero": e.numero,
+                            "resumen": ce.observacion, "evidencias": adjuntos},
+            })
+    bitacora.registrar_lote(sesion, subsanaciones + eventos)
     sellar_pendientes(sesion, [expediente.id])
     motor.sincronizar(sesion, [expediente.id])
     return conformidad.id

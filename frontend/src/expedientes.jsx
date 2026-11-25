@@ -5,12 +5,16 @@ import { api, useAccion, useDatos } from "./api";
 import { fecha, hoy, rutaExpediente, soles } from "./dominio";
 import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Indicador, Resumen, Semaforo, Tabla, Volver } from "./ui";
 
+const estadoConformidad = (fila) => fila.observaciones_pendientes ? "Con observaciones"
+  : fila.tiene_conformidad ? "Registrada" : "Pendiente";
+
 const columnas = (actor, destinoFila) => [
   { titulo: "Expediente", valor: (f) => f.codigo, render: (f) => <>
     <Link className="codigo-expediente" to={destinoFila(f.id)}>{f.codigo}</Link>
     <small className="dato-tabla">{f.numero_orden} · {fecha(f.fecha_orden)}</small>
     <div className="estado-fila-movil">
-      <small>{f.tiene_conformidad ? "Con conformidad" : "Sin conformidad"}</small>
+      <small>{f.observaciones_pendientes ? estadoConformidad(f)
+        : f.tiene_conformidad ? "Con conformidad" : "Sin conformidad"}</small>
       {f.tiene_pago && actor.rol !== "area_usuaria" && <small>Pago registrado</small>}
       {f.alertas_altas + f.alertas_medias > 0 && <Semaforo color={f.semaforo} />}
     </div>
@@ -29,8 +33,10 @@ const columnas = (actor, destinoFila) => [
     render: (f) => <span title={f.area}>{f.area}</span>,
   }]),
   { titulo: "Monto", valor: (f) => Number(f.monto), render: (f) => soles(f.monto), clase: "numero columna-amplia" },
-  { titulo: "Conformidad", valor: (f) => f.tiene_conformidad ? "Registrada" : "Pendiente", clase: "columna-amplia",
-    render: (f) => f.tiene_conformidad ? <Indicador tono="verde">Registrada</Indicador> : <Indicador>Pendiente</Indicador> },
+  { titulo: "Conformidad", valor: estadoConformidad, clase: "columna-amplia",
+    render: (f) => <Indicador tono={f.observaciones_pendientes ? "ambar" : f.tiene_conformidad ? "verde" : "neutro"}>
+      {estadoConformidad(f)}
+    </Indicador> },
   ...(actor.rol === "area_usuaria" ? [] : [{ titulo: "Pago", valor: (f) => f.tiene_pago ? "Registrado" : "Pendiente", clase: "columna-amplia" }]),
   { titulo: "Alertas", valor: (f) => ({ rojo: 0, ambar: 1, verde: 2 }[f.semaforo]), clase: "columna-amplia",
     render: (f) => f.alertas_altas + f.alertas_medias ? <Semaforo color={f.semaforo} /> : "—" },
@@ -41,14 +47,15 @@ const VISTAS = {
   ambar: (f) => f.semaforo === "ambar",
   verde: (f) => f.semaforo === "verde",
   pendiente: (f) => !f.tiene_conformidad,
-  por_pagar: (f) => f.tiene_conformidad && !f.tiene_pago,
+  observadas: (f) => f.observaciones_pendientes > 0,
+  por_pagar: (f) => f.tiene_conformidad && !f.tiene_pago && !f.observaciones_pendientes,
 };
 
 export function Expedientes({ actor, soloPendientes = false }) {
   const [params, setParams] = useSearchParams();
   const texto = params.get("q") ?? "";
   const filtro = params.get("ver");
-  const vista = Object.hasOwn(VISTAS, filtro) && (!soloPendientes || ["rojo", "ambar", "verde"].includes(filtro))
+  const vista = Object.hasOwn(VISTAS, filtro) && (!soloPendientes || ["rojo", "ambar", "verde", "observadas"].includes(filtro))
     ? filtro : null;
   const tipo = params.get("tipo") === "bien" ? "bien" : "servicio";
   const navegar = useNavigate();
@@ -105,10 +112,11 @@ export function Expedientes({ actor, soloPendientes = false }) {
             ...(!soloPendientes ? [{
               clave: "pendiente", titulo: actor.rol === "tesoreria" ? "Falta sustento" : "Sin conformidad", valor: contar("pendiente"),
             }] : []),
+            { clave: "observadas", titulo: "Con observaciones", valor: contar("observadas"), tono: "ambar" },
             { clave: "rojo", titulo: "Alertas altas", valor: contar("rojo"), tono: "rojo" },
             { clave: "ambar", titulo: "Alertas medias", valor: contar("ambar"), tono: "ambar" },
             ...(actor.rol === "tesoreria" ? [{ clave: "por_pagar", titulo: "Sin pago registrado", valor: contar("por_pagar"),
-              ayuda: "Con conformidad registrada. Revisa las alertas y el sustento antes del pago." }] : []),
+              ayuda: "Con conformidad registrada y sin observaciones pendientes. Revisa las alertas antes del pago." }] : []),
           ]} />
         </div>
         {filas ? <>
