@@ -2,6 +2,8 @@
 
 Prototipo para el **Desafío 2: Integridad institucional y Compliance** de la Hackathon Innova Norte 3G. Conforme reúne expedientes, evidencias y alertas para que el personal de la Universidad Nacional de Trujillo (UNT) pueda revisar el sustento de una conformidad antes del pago y reconstruir el trámite. La demo utiliza órdenes, personas y documentos sintéticos.
 
+[Ingresar a la demo de Conforme](https://conforme-15md.onrender.com/login)
+
 [Guía de la demo con capturas de las pantallas y del recorrido](https://docs.google.com/document/d/10GPCprwzcYCGVsKULKxFkwf20AmAopchgDjzDAljLQ0/edit) · Requiere acceso al documento.
 
 ## Módulos y cuentas de demostración
