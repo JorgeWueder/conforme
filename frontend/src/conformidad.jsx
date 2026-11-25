@@ -3,7 +3,7 @@ import { CircleAlert, CircleCheck } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, useAccion, useDatos } from "./api";
 import { fecha, hoy, observacionesDeEntrega, rutaExpediente, soles } from "./dominio";
-import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Volver } from "./ui";
+import { Aviso, Campo, Carga, Encabezado, EstadoAccion, InsigniaIA, Volver } from "./ui";
 
 const diasEntre = (desde, hasta) => Math.round((Date.parse(hasta) - Date.parse(desde)) / 86_400_000);
 const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
@@ -181,7 +181,7 @@ export function Conformidad() {
           · Fecha límite {fecha(recurso.datos.fecha_limite)}</p>
         {expediente.tiene_conformidad ? <Aviso>Este expediente ya tiene una conformidad registrada.</Aviso>
           : !recurso.datos.entregables.length ? <Aviso tipo="advertencia">
-            Faltan los entregables del expediente. <Link to={`${rutaExpediente(id)}/tdr`}>Revisar TDR</Link>
+            Faltan los entregables del expediente. <Link to={`${rutaExpediente(id)}/tdr`}>Revisar TDR <InsigniaIA /></Link>
           </Aviso>
           : <Formulario key={id} expediente={expediente} entregables={recurso.datos.entregables}
             observaciones={observacionesDeEntrega(recurso.datos.eventos)} />}

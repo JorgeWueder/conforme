@@ -10,7 +10,7 @@ import {
 } from "./dominio";
 import {
   Aviso, AvisoNavegacion, Campo, Carga, DatosClave, Encabezado, EstadoAccion,
-  EstadoEntregable, Indicador, ProximoPaso, ReferenciaRegla, Semaforo, Volver,
+  EstadoEntregable, Indicador, InsigniaIA, ProximoPaso, ReferenciaRegla, Semaforo, Volver,
 } from "./ui";
 
 function Sello({ conformidad, id }) {
@@ -92,10 +92,13 @@ function Entregables({ expediente, conformidad, entregables, observaciones, acto
           {" · "}Penalidad aplicada de {soles(conformidad.penalidad_aplicada)}</p>
         {conformidad.observaciones && <p className="secundario">Observaciones: {conformidad.observaciones}</p>}
         {conformidad.codigo_sello && <Sello conformidad={conformidad} id={expediente.id} />}
+        {actor.rol === "area_usuaria" && <div className="acciones">
+          <Link className="boton" to={`${rutaExpediente(expediente.id)}/tdr`}><FileText size={16} /> Historial de TDR</Link>
+        </div>}
       </> : <>
         <Aviso>{entregables.length ? "Conformidad pendiente." : "Este expediente no tiene entregables cargados."}</Aviso>
         {actor.rol === "area_usuaria" && entregables.length > 0 && <div className="acciones">
-          <Link className="boton" to={`${rutaExpediente(expediente.id)}/tdr`}><FileText size={16} /> Revisar TDR</Link>
+          <Link className="boton" to={`${rutaExpediente(expediente.id)}/tdr`}><FileText size={16} /> Revisar TDR<InsigniaIA /></Link>
         </div>}
         {actor.rol === "area_usuaria" && porObservar.length > 0 && (
           <RegistrarObservacion expediente={expediente} entregables={porObservar} recargar={recargar} />
@@ -252,7 +255,7 @@ function Siguiente({ actor, expediente, conformidad, entregables, pendientes, al
   if (actor.rol === "area_usuaria") {
     if (!conformidad && !entregables.length) {
       return <ProximoPaso titulo="Faltan los entregables"
-        acciones={<Link className="boton primario" to={`${ruta}/tdr`}><FileText size={16} /> Revisar TDR</Link>} />;
+        acciones={<Link className="boton primario" to={`${ruta}/tdr`}><FileText size={16} /> Revisar TDR<InsigniaIA /></Link>} />;
     }
     if (!conformidad) {
       return <ProximoPaso tono={pendientes ? "advertencia" : "info"}

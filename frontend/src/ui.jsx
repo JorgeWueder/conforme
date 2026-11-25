@@ -39,6 +39,18 @@ export function Indicador({ tono = "neutro", children }) {
   return <span className={`indicador indicador-${tono}`}>{children}</span>;
 }
 
+export function InsigniaIA() {
+  return <>
+    <span className="insignia-ia" title="Extracción de entregables con IA" aria-hidden="true">
+      <svg width="19" height="19" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M7.5 1 Q8.7 7.3 15 8.5 Q8.7 9.7 7.5 16 Q6.3 9.7 0 8.5 Q6.3 7.3 7.5 1Z" />
+        <path d="M15.8 10 Q16.4 13.6 20 14.2 Q16.4 14.8 15.8 18.4 Q15.2 14.8 11.6 14.2 Q15.2 13.6 15.8 10Z" />
+      </svg>
+    </span>
+    <span className="solo-lector"> con IA</span>
+  </>;
+}
+
 export function Semaforo({ color }) {
   return <Indicador tono={color}><span className="punto" />{SEMAFOROS[color]}</Indicador>;
 }

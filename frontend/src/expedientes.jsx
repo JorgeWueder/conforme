@@ -225,7 +225,7 @@ export function NuevoExpediente() {
           <h2>Entregables de los TDR</h2>
           <Campo titulo="Forma de registro"><select value={modo} onChange={(e) => setModo(e.target.value)}>
             <option value="manual">Registro manual</option><option value="csv">Importar CSV</option>
-            <option value="tdr">Extraer de los TDR</option>
+            <option value="tdr">Extraer de los TDR con IA</option>
           </select></Campo>
           {modo === "manual" && <EditorManual filas={manual} setFilas={setManual} />}
           {modo === "tdr" && <p className="secundario">Después de registrar la orden, carga el PDF y revisa los entregables extraídos.</p>}

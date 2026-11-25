@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { api, useAccion, useDatos } from "./api";
 import { ROLES } from "./dominio";
-import { Aviso, Encabezado, EstadoAccion } from "./ui";
+import { Aviso, Encabezado, EstadoAccion, InsigniaIA } from "./ui";
 import { Expedientes, NuevoExpediente } from "./expedientes";
 import { Detalle } from "./detalle";
 import { Conformidad } from "./conformidad";
@@ -77,6 +77,7 @@ function Marco({ actor, cerrarSesion }) {
                 <span className="menu-titulo" aria-hidden="true">{grupo}</span>
                 {enlaces.map(([ruta, etiqueta, Icono]) => (
                   <NavLink key={ruta} to={ruta}><Icono size={18} aria-hidden="true" />{etiqueta}
+                    {ruta === "/lectura-ia" && <InsigniaIA />}
                     {ruta === "/alertas" && porAtender > 0 && <span className="insignia" title="Alertas por atender">
                       {porAtender}<span className="solo-lector"> por atender</span></span>}
                   </NavLink>

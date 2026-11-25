@@ -5,8 +5,12 @@ import { api, useAccion, useDatos } from "./api";
 import { capitalizar, fechaHora, rutaExpediente } from "./dominio";
 import { Aviso, AvisoNavegacion, Campo, Carga, Encabezado, EstadoAccion, Indicador, Volver } from "./ui";
 
-const ORIGENES = { modelo: "Leído por el modelo", respaldo: "Resultado de respaldo" };
+const ORIGENES = { modelo: "Extracción con IA", respaldo: "Ejemplo guardado" };
 const ESTADOS_LECTURA = { propuesta: "Pendiente", aprobada: "Aprobada", rechazada: "Rechazada" };
+
+function OrigenLectura({ origen }) {
+  return <Indicador tono={origen === "respaldo" ? "ambar" : "neutro"}>{ORIGENES[origen] ?? origen}</Indicador>;
+}
 
 function Propuesta({ pendiente, expediente, recargar }) {
   const [filas, setFilas] = useState(() => pendiente.resultado.entregables.map((item, id) => ({ id, descripcion: item.descripcion })));
@@ -38,11 +42,14 @@ function Propuesta({ pendiente, expediente, recargar }) {
 
   return (
     <section className="seccion">
-      <h2>Revisar propuesta</h2>
+      <div className="fila-titulo">
+        <h2>Revisar propuesta</h2>
+        <OrigenLectura origen={pendiente.origen} />
+      </div>
       <p className="secundario">Documento «{pendiente.archivo_nombre}» · {fechaHora(pendiente.creado_en)}</p>
       {pendiente.origen === "respaldo"
-        ? <Aviso tipo="advertencia"><strong>Resultado de respaldo.</strong> Se muestra un ejemplo guardado. {pendiente.aviso}</Aviso>
-        : <Aviso>Revisa los entregables propuestos antes de aprobarlos.</Aviso>}
+        ? <Aviso tipo="advertencia">La extracción con IA no estuvo disponible. La propuesta corresponde al PDF de ejemplo.</Aviso>
+        : <Aviso>Contrasta los entregables propuestos con el PDF antes de aprobarlos.</Aviso>}
       {resultado.objeto && <div className="panel ficha">
         <p><strong>Objeto del documento</strong> · {resultado.objeto}</p>
         <p><strong>Objeto del expediente</strong> · {expediente.descripcion}</p>
@@ -90,7 +97,7 @@ function LecturasDelExpediente({ id }) {
   if (!recurso.datos) return <Carga recurso={recurso} />;
   const { expediente, entregables, lecturas, hay_ejemplo } = recurso.datos;
   const pendiente = lecturas.find((lectura) => lectura.estado === "propuesta");
-  const historial = lecturas.filter((lectura) => lectura.estado !== "propuesta");
+  const historial = lecturas.filter((lectura) => expediente.tiene_conformidad || lectura.estado !== "propuesta");
 
   function leer(evento) {
     evento.preventDefault();
@@ -112,7 +119,8 @@ function LecturasDelExpediente({ id }) {
         <p>{expediente.descripcion}</p>
         <small>Entregables existentes: {entregables.map((e) => `${e.numero}. ${e.descripcion}`).join("; ") || "ninguno"}.</small>
       </div>
-      {expediente.tiene_conformidad ? <Aviso>La conformidad ya está registrada.</Aviso> : <form className="panel formulario" onSubmit={leer}>
+      {expediente.tiene_conformidad && !historial.length && <Aviso>Este expediente no tiene lecturas de TDR registradas.</Aviso>}
+      {!expediente.tiene_conformidad && <form className="panel formulario" onSubmit={leer}>
         <div className="fila-titulo">
           <h2>Cargar TDR</h2>
           {hay_ejemplo && <a className="boton" href="/api/ia/ejemplo"><Download size={16} /> Descargar PDF de ejemplo</a>}
@@ -124,17 +132,17 @@ function LecturasDelExpediente({ id }) {
         </Campo>
         <EstadoAccion accion={accion} />
         <div><button className="primario" disabled={!archivo || Boolean(pendiente) || accion.pendiente}>
-          <FileText size={17} />{accion.pendiente ? "Leyendo TDR…" : "Extraer entregables"}</button></div>
+          <FileText size={17} />{accion.pendiente ? "Procesando los TDR…" : "Extraer entregables con IA"}</button></div>
       </form>}
       {rechazada && <Aviso tipo="exito">Propuesta rechazada. No se añadió ningún entregable.</Aviso>}
       {pendiente && !expediente.tiene_conformidad && <Propuesta key={pendiente.id} pendiente={pendiente} expediente={expediente} recargar={() => {
         setRechazada(true);
         recurso.recargar();
       }} />}
-      {historial.length > 0 && <details className="panel desplegable">
+      {historial.length > 0 && <details className="panel desplegable" open={expediente.tiene_conformidad || undefined}>
         <summary>Historial de lecturas ({historial.length})</summary>
         <ul className="lista-simple">{historial.map((lectura) =>
-          <li key={lectura.id}>{fechaHora(lectura.creado_en)} · «{lectura.archivo_nombre}» · {ORIGENES[lectura.origen] ?? lectura.origen}
+          <li key={lectura.id}>{fechaHora(lectura.creado_en)} · «{lectura.archivo_nombre}» · <OrigenLectura origen={lectura.origen} />
             {" · "}<Indicador tono={lectura.estado === "aprobada" ? "verde" : "neutro"}>{ESTADOS_LECTURA[lectura.estado] ?? lectura.estado}</Indicador></li>)}</ul>
       </details>}
     </>
@@ -144,7 +152,7 @@ function LecturasDelExpediente({ id }) {
 export function RevisarTdr() {
   const { id } = useParams();
   return <>
-    <Encabezado titulo="Términos de referencia" descripcion="La lectura asistida propone entregables para revisión y aprobación.">
+    <Encabezado titulo="Términos de referencia" descripcion="La IA propone entregables del PDF. El área usuaria revisa y aprueba cuáles se incorporan al expediente.">
       <Volver to={rutaExpediente(id)}>Expediente</Volver>
     </Encabezado>
     <AvisoNavegacion />
@@ -159,7 +167,7 @@ export function LecturaIA() {
   const elegido = elegibles?.find((e) => String(e.id) === params.get("expediente")) ?? elegibles?.[0];
   return (
     <>
-      <Encabezado titulo="Términos de referencia" descripcion="Selecciona un expediente para revisar sus entregables.">
+      <Encabezado titulo="Términos de referencia" descripcion="Selecciona un expediente para extraer entregables con IA o revisar una propuesta.">
         <Volver to={elegido ? rutaExpediente(elegido.id) : "/expedientes"}>{elegido ? "Volver al expediente" : "Expedientes"}</Volver>
       </Encabezado>
       <AvisoNavegacion />
