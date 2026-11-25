@@ -107,6 +107,17 @@ Comprobado contra https://conforme-15md.onrender.com (API con un script y págin
 - [ ] Recorrer las pantallas con sesión en el navegador (aquí se comprobó por la API, sin escribir la contraseña en el navegador integrado).
 - [ ] Medir cuánto tarda en despertar tras dormirse (en esta prueba ya estaba despierto: portada en 0,8 s).
 
+### D6 — Redespliegue de 03dbc3d (25 nov 2026)
+- [x] Rama `dev`: `migrar` aplicó 005 y 006. `pytest` contra `test`: 246 pruebas pasan (27 min).
+- [x] Rama `demo`: `migrar` (006), `sembrar --reiniciar` (300 expedientes, 41 alertas, 2433 registros de bitácora) y `medir_deteccion` → cobertura 41/41, precisión 41/41, 0 falsos positivos (R4 baja de 6 a 5 con el cambio de R4 en 5ffecb8).
+- [x] Deploy de `03dbc3d` en Render (lanzado por ti): la portada sirve `index-DaRnnQL0.js` (igual a la compilación local), `/api/salud` → ok y la verificación pública de un sello de `demo` (`EXP-2026-0001`) → íntegra.
+- [x] Pantallas con sesión en el sitio publicado (sesión iniciada por ti en el navegador integrado; no se escribió nada):
+  - `inf1`: 17 expedientes y 9 alertas (incluye R6 y R7); caso estrella con R1 y R2, penalidad estimada S/ 2,880.00; ruta UNT (DINE, proyecto, SIAF); «Registrar observación», «Revisar TDR con IA» y «Registrar conformidad» en `EXP-2026-0295`.
+  - `tes1`: 300 expedientes y 41 alertas (R1–R8); bitácora → 403; sin edición de conformidad; «Registrar pago efectuado»; «Cerrar alerta» y «Escalar».
+  - `oci1`: 300 expedientes y 41 alertas; bitácora con búsqueda; integridad → íntegra, 2433 registros; expediente sin botones de registro; «Cerrar alerta» y «Escalar».
+- [ ] La búsqueda de la bitácora solo filtra los últimos 200 registros (para un expediente antiguo, usar su línea de tiempo).
+- [ ] Sin probar en el sitio publicado: extracción con IA subiendo un PDF y las acciones que escriben (observación, conformidad, pago, cerrar o escalar). Si se ensayan sobre `demo`, volver a sembrarla.
+
 ### D5 — Cierre
 - [ ] Apagar o borrar la app de Streamlit Cloud para que no quede una versión vieja publicada.
 - [ ] Actualizar la URL de la tabla de estado, `README.md` (sección de despliegue) y `CLAUDE.md`.
