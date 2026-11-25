@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate,
+  BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation,
 } from "react-router";
 import {
   Bell, ClipboardCheck, Database, Eye, EyeOff, FileText, FlaskConical,
@@ -16,6 +16,8 @@ import { Conformidad } from "./conformidad";
 import { Alertas, Bitacora, meToca } from "./auditoria";
 import { LecturaIA, RevisarTdr } from "./lectura";
 import { Verificar } from "./verificar";
+import fotoCampus from "./assets/unt-ciudad-universitaria.webp";
+import fotoPatio from "./assets/unt-patio-historico.webp";
 import "./estilos.css";
 
 const ROLES_DEMO = [
@@ -136,8 +138,6 @@ function Marco({ actor, cerrarSesion }) {
 
 function Login({ ingresar, vencida }) {
   const accion = useAccion();
-  const navegar = useNavigate();
-  const ubicacion = useLocation();
   const [usuario, setUsuario] = useState("");
   const [mostrarClave, setMostrarClave] = useState(false);
   const claveRef = useRef(null);
@@ -152,40 +152,26 @@ function Login({ ingresar, vencida }) {
     const datos = Object.fromEntries(new FormData(evento.currentTarget));
     accion.ejecutar(async () => {
       ingresar(await api("/sesion", { method: "POST", data: datos }));
-      navegar(ubicacion.state?.volver ?? "/expedientes", { replace: true });
     });
   }
 
   return (
-    <div className="login-contenedor">
-      <div className="login-marco">
-        <aside className="login-lado" aria-label="Contexto institucional">
-          <div className="login-lado-cuerpo">
-            <div className="login-marca-unt">
-              <span className="login-barra-oro" aria-hidden="true" />
-              <span>Universidad Nacional de Trujillo</span>
-            </div>
-            <h1>Conformidad de servicios</h1>
-            <p className="login-descripcion">
-              Expedientes, evidencias y alertas antes del pago.
-            </p>
-          </div>
-
-          <div className="login-lado-pie">
-            <div className="login-verificar-bloque">
-              <Link to="/verificar" className="login-verificar-enlace">
-                <QrCode size={16} aria-hidden="true" />
-                Verificar sello de conformidad
-              </Link>
-            </div>
-          </div>
-        </aside>
-
+    <div className="login-pagina">
+      <a className="salto" href="#contenido">Saltar al contenido</a>
+      <header className="login-cabecera">
+        <div className="login-identidad">
+          <Marca publica />
+          <span>Universidad Nacional de Trujillo</span>
+        </div>
+        <nav aria-label="Menú público">
+          <Link to="/verificar" className="boton"><QrCode size={17} aria-hidden="true" />Verificar sello</Link>
+        </nav>
+      </header>
+      <main id="contenido" className="login-contenido" tabIndex={-1}>
         <section className="login-panel" aria-labelledby="titulo-login">
           <form className="formulario login-form" onSubmit={enviar}>
             <div className="login-encabezado">
-              <h2 id="titulo-login">Iniciar sesión</h2>
-              <p className="secundario">Usa una cuenta de demostración.</p>
+              <h1 id="titulo-login">Iniciar sesión</h1>
             </div>
 
             {vencida && <Aviso tipo="advertencia">Tu sesión venció. Vuelve a ingresar para continuar donde estabas.</Aviso>}
@@ -193,7 +179,7 @@ function Login({ ingresar, vencida }) {
             <div className="campo">
               <label htmlFor="login-usuario">Usuario</label>
               <input id="login-usuario" name="username" autoComplete="username" required
-                placeholder="inf1, tes1 u oci1" value={usuario}
+                value={usuario}
                 onChange={(e) => setUsuario(e.target.value)} />
             </div>
 
@@ -201,8 +187,7 @@ function Login({ ingresar, vencida }) {
               <label htmlFor="login-password">Contraseña</label>
               <div className="control-clave">
                 <input id="login-password" ref={claveRef} name="password"
-                  type={mostrarClave ? "text" : "password"} autoComplete="current-password"
-                  placeholder="Ingresa tu contraseña" required />
+                  type={mostrarClave ? "text" : "password"} autoComplete="current-password" required />
                 <button type="button" className="boton-ojo"
                   aria-label={mostrarClave ? "Ocultar contraseña" : "Mostrar contraseña"}
                   onClick={() => setMostrarClave((v) => !v)}>
@@ -218,9 +203,7 @@ function Login({ ingresar, vencida }) {
             </button>
 
             <div className="demo-bloque">
-              <div className="demo-titulo">
-                <span>Usuarios de demostración</span>
-              </div>
+              <strong className="demo-titulo">Usuarios de demostración</strong>
               <div className="demo-chips" role="group" aria-label="Elegir usuario de demostración">
                 {ROLES_DEMO.map((item) => (
                   <button key={item.usuario} type="button"
@@ -235,7 +218,31 @@ function Login({ ingresar, vencida }) {
             </div>
           </form>
         </section>
-      </div>
+        <aside className="login-visual" aria-label="Universidad Nacional de Trujillo">
+          <figure className="login-foto login-foto-campus">
+            <img src={fotoCampus} width="1600" height="1033" alt="Pabellón de Educación y Ciencias de la Comunicación" />
+            <figcaption>Ciudad Universitaria, 2012</figcaption>
+          </figure>
+          <div className="login-contexto">
+            <figure className="login-foto login-foto-patio">
+              <img src={fotoPatio} width="799" height="450" alt="Patio con arcos y un busto en el centro" loading="lazy" />
+              <figcaption>Sede histórica, 2006</figcaption>
+            </figure>
+            <div className="login-contexto-texto">
+              <h2>Conformidad de servicios</h2>
+              <p>Expedientes, evidencias y alertas antes del pago.</p>
+            </div>
+          </div>
+        </aside>
+      </main>
+      <footer className="login-pie">
+        <p className="login-creditos">
+          Fotos adaptadas de <a href="https://commons.wikimedia.org/wiki/File:Universidad_Nacional_de_Trujillo.JPG">Latimax</a>
+          {" y "}<a href="https://commons.wikimedia.org/wiki/File:UNT_antigua.jpg">EACC</a>
+          {" ("}<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>{")"}
+        </p>
+        <p className="marca-demo"><FlaskConical size={15} aria-hidden="true" /> Demostración con datos sintéticos</p>
+      </footer>
     </div>
   );
 }
@@ -277,12 +284,12 @@ function App() {
   }
   return (
     <Routes>
+      <Route path="login" element={actor ? <Navigate to={navegacion.state?.volver ?? "/expedientes"} replace /> : <Login vencida={vencida} ingresar={(actor) => {
+        setVencida(false);
+        setSesion(actor);
+      }} />} />
       <Route element={<Marco actor={actor} cerrarSesion={cerrarSesion} />}>
         <Route index element={<Navigate to={actor ? "/expedientes" : "/login"} replace />} />
-        <Route path="login" element={actor ? <Navigate to="/expedientes" replace /> : <Login vencida={vencida} ingresar={(actor) => {
-          setVencida(false);
-          setSesion(actor);
-        }} />} />
         <Route path="verificar" element={<Verificar />} />
         <Route element={<Protegida actor={actor} />}>
           <Route path="expedientes" element={<Expedientes actor={actor} />} />

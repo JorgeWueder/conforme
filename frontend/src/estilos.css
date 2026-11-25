@@ -209,78 +209,117 @@ ul { padding-inline-start: 1.3rem; }
   gap: .4rem 1.5rem;
 }
 
-/* Vista Login: marco unificado institucional UNT */
-.login-contenedor {
-  margin: auto;
-  width: 100%;
-  max-width: 56rem;
-}
-.login-marco {
+/* Acceso de Conforme */
+.login-pagina {
+  --margen-login: clamp(1rem, 4vw, 4.75rem);
+  min-height: 100dvh;
   display: grid;
-  grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr);
-  border: 1px solid var(--borde);
-  border-radius: .4rem;
-  overflow: hidden;
+  grid-template-rows: auto 1fr auto;
   background: var(--papel);
 }
-.login-lado {
+.login-cabecera, .login-pie {
   display: flex;
-  flex-direction: column;
   justify-content: space-between;
-  gap: 2.5rem;
-  padding: clamp(1.75rem, 3.5vw, 2.75rem);
-  background: var(--azul-oscuro);
-  border-top: 3px solid var(--dorado);
-  color: var(--papel);
+  align-items: center;
+  padding-inline: var(--margen-login);
+  gap: .6rem 1.5rem;
 }
-.login-lado-cuerpo { display: grid; gap: 1rem; align-content: start; }
-.login-marca-unt {
+.login-cabecera {
+  min-height: 4.65rem;
+  padding-block: .7rem;
+  border-top: 3px solid var(--dorado);
+  border-bottom: 1px solid var(--borde);
+}
+.login-identidad {
   display: flex;
   align-items: center;
-  gap: .65rem;
-  font-size: .84rem;
-  font-weight: 600;
-  color: var(--azul-claro);
+  gap: .9rem;
+  min-width: 0;
 }
-.login-barra-oro { width: 1.5rem; height: 3px; border-radius: 2px; background: var(--dorado); flex: none; }
-.login-lado h1 {
-  color: var(--papel);
-  font-size: clamp(2rem, 4vw, 2.9rem);
-}
-.login-descripcion {
-  color: var(--azul-claro);
-  font-size: .92rem;
-  line-height: 1.6;
-  max-width: 40ch;
-}
-.login-lado-pie {
-  display: grid;
-  gap: 1.25rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid rgba(234, 242, 252, .18);
-}
-.login-verificar-bloque { display: grid; gap: .45rem; }
-.login-verificar-enlace {
-  display: inline-flex;
-  align-items: center;
-  gap: .45rem;
-  width: max-content;
-  color: var(--dorado);
+.login-identidad .marca-nombre { font-size: 1.35rem; }
+.login-identidad > span {
+  padding-inline-start: .9rem;
+  border-inline-start: 1px solid var(--borde);
+  color: var(--texto-secundario);
   font-size: .875rem;
   font-weight: 600;
-  text-decoration: none;
 }
-.login-verificar-enlace:hover { text-decoration: underline; }
-.login-lado :focus-visible { outline-color: var(--dorado); }
-
+.login-cabecera nav { flex: none; }
+.login-cabecera .boton { font-size: .875rem; }
+.login-contenido {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(24rem, 1fr);
+  grid-template-areas: "visual panel";
+}
+.login-visual {
+  grid-area: visual;
+  display: grid;
+  grid-template-rows: minmax(19rem, 1fr) auto;
+  min-width: 0;
+  background: var(--azul-oscuro);
+  color: var(--papel);
+}
+.login-foto { position: relative; margin: 0; min-width: 0; background: var(--azul-oscuro); }
+.login-foto img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.login-foto-campus img { object-position: center 52%; }
+.login-foto-patio img { object-position: 43% 64%; }
+.login-foto figcaption {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  padding: .35rem .65rem;
+  color: var(--papel);
+  background: var(--azul-oscuro);
+  font-size: .75rem;
+}
+.login-contexto {
+  display: grid;
+  grid-template-columns: minmax(10rem, .8fr) minmax(0, 1fr);
+  min-height: clamp(10rem, 21vh, 14rem);
+  border-top: 3px solid var(--dorado);
+}
+.login-contexto-texto {
+  align-self: center;
+  display: grid;
+  gap: .55rem;
+  padding: clamp(.8rem, 2.6vw, 2rem);
+}
+.login-contexto h2 {
+  color: var(--papel);
+  font-family: Georgia, Cambria, serif;
+  font-size: clamp(1.5rem, 3vw, 2.75rem);
+  font-weight: 400;
+  line-height: 1.07;
+  letter-spacing: -.025em;
+  text-wrap: balance;
+}
+.login-contexto p { color: var(--azul-claro); font-size: clamp(.8rem, 1.2vw, .95rem); max-width: 38ch; }
 .login-panel {
-  padding: clamp(1.75rem, 3.5vw, 2.75rem);
-  display: flex;
-  align-items: center;
+  grid-area: panel;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  padding: clamp(1.75rem, 5vw, 4.75rem) clamp(1rem, 4vw, 4rem);
+  border-inline-start: 1px solid var(--borde);
 }
-.login-form { width: 100%; gap: 1.05rem; }
-.login-encabezado { display: grid; gap: .2rem; margin-bottom: .25rem; }
-.login-encabezado h2 { font-size: 1.35rem; color: var(--texto); font-weight: 700; }
+.login-form { width: min(100%, 24rem); gap: 1.05rem; }
+.login-encabezado { margin-bottom: .6rem; }
+.login-encabezado h1 { font-size: clamp(2.05rem, 4.2vw, 3.65rem); }
+.login-pie {
+  flex-wrap: wrap;
+  min-height: 3.1rem;
+  padding-block: .65rem;
+  border-top: 1px solid var(--borde);
+  background: var(--superficie-sutil);
+}
+.login-creditos { font-size: .76rem; color: var(--texto-secundario); }
 .control-clave { position: relative; }
 .control-clave input { padding-right: 2.5rem; }
 .boton-ojo {
@@ -305,9 +344,7 @@ ul { padding-inline-start: 1.3rem; }
   padding-top: 1rem;
   border-top: 1px solid var(--borde-suave);
 }
-.demo-titulo { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: .35rem; }
-.demo-titulo span { font-size: .8rem; font-weight: 600; color: var(--texto); }
-.demo-titulo small { font-size: .76rem; }
+.demo-titulo { font-size: .8rem; font-weight: 600; color: var(--texto); }
 .demo-chips { display: flex; flex-wrap: wrap; gap: .45rem; }
 .demo-chip {
   min-height: 2rem;
@@ -761,14 +798,18 @@ td.celda-texto { min-width: 12rem; }
   .marco-privado { grid-template-columns: 12rem minmax(0, 1fr); }
   .lateral { padding-inline: .65rem; }
   .datos-clave div { display: block; }
-  .login-marco { grid-template-columns: minmax(0, 1fr); }
-  .login-panel { order: -1; }
   .constancia-cifras { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .constancia-cifras div { border-bottom: 1px solid var(--borde-suave); }
   .constancia-cifras div:nth-child(even) { border-right: 0; }
   .constancia-cifras div:nth-last-child(-n+2) { border-bottom: 0; }
   .constancia-partes, .verificador-notas { grid-template-columns: minmax(0, 1fr); }
   .esqueleto-grilla { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 780px) {
+  .login-contenido { grid-template-columns: minmax(0, 1fr); grid-template-areas: "panel" "visual"; }
+  .login-panel { border-inline-start: 0; padding-block: 2.3rem; }
+  .login-visual { grid-template-rows: minmax(12rem, 45vw) auto; }
+  .login-contexto { min-height: 9rem; }
 }
 @media (max-width: 700px) {
   .marco-privado { display: block; }
@@ -802,6 +843,11 @@ td.celda-texto { min-width: 12rem; }
   .estado-fila-movil .indicador { font-size: .7rem; }
 }
 @media (max-width: 480px) {
+  .login-cabecera { gap: .7rem; }
+  .login-identidad { flex-direction: column; align-items: start; gap: .3rem; }
+  .login-identidad > span { padding-inline-start: 0; border-inline-start: 0; font-size: .73rem; }
+  .login-cabecera .boton { padding-inline: .55rem; font-size: .8rem; }
+  .login-contexto { grid-template-columns: minmax(0, .9fr) minmax(0, 1fr); }
   .barra-publica-interior { flex-wrap: wrap; gap: .5rem; }
   .barra-publica nav { width: 100%; }
   .barra-publica nav a { flex: 1; justify-content: center; }
