@@ -1,7 +1,7 @@
 """Prepara un archivo de evidencia para guardarlo: valida, reduce y calcula su huella."""
 import hashlib
 import io
-from pathlib import PurePath
+from pathlib import PurePath, PureWindowsPath
 
 from PIL import Image, ImageOps
 
@@ -18,7 +18,9 @@ def preparar(nombre_archivo: str, mime: str, contenido: bytes) -> dict:
     Las fotos más grandes que LADO_MAXIMO se reducen y se guardan como JPEG.
     El SHA-256 es el del contenido que efectivamente se guarda.
     """
-    nombre_archivo = PurePath(nombre_archivo or "evidencia").name
+    nombre_archivo = PureWindowsPath(nombre_archivo or "").name
+    if nombre_archivo in ("", ".."):
+        nombre_archivo = "evidencia"
     if mime not in MIMES_ADMITIDOS:
         raise ErrorValidacion(
             f"«{nombre_archivo}»: tipo de archivo no admitido. Usa JPG, PNG o PDF.")

@@ -79,11 +79,10 @@ def test_se_puede_guardar_sin_evidencia_y_eso_genera_r1(sesion_sembrada):
     exp = _pendiente(s, inf1)
     _registrar(s, inf1, exp, sin_evidencia={1})
     reglas = {a["regla"] for a in repositorio.listar_alertas(s, inf1, expediente_id=exp["id"])}
-    esperadas = {"R1"} | ({"R4"} if exp["solicitante_id"] == inf1.persona_id else set())
-    assert reglas == esperadas
+    assert reglas == {"R1"}
     assert repositorio.obtener_expediente(s, inf1, exp["id"])["semaforo"] == "rojo"
     acciones = [e["accion"] for e in repositorio.linea_de_tiempo(s, inf1, exp["id"])]
-    assert acciones.count("alerta.generada") == len(esperadas)
+    assert acciones.count("alerta.generada") == 1
 
 
 def test_una_sola_conformidad_por_expediente(sesion_sembrada):
@@ -152,10 +151,10 @@ def test_evidencia_de_otra_area_no_se_entrega(sesion_sembrada):
 
 def test_alertas_visibles_segun_el_alcance(sesion_sembrada):
     s = sesion_sembrada
-    assert len(repositorio.listar_alertas(s, actor_de(s, "tes1"))) == 42
-    assert len(repositorio.listar_alertas(s, actor_de(s, "oci1"))) == 42
+    assert len(repositorio.listar_alertas(s, actor_de(s, "tes1"))) == 41
+    assert len(repositorio.listar_alertas(s, actor_de(s, "oci1"))) == 41
     propias = repositorio.listar_alertas(s, actor_de(s, "inf1"))
-    assert 3 <= len(propias) < 42
+    assert 2 <= len(propias) < 41
     assert {a["area_sigla"] for a in propias} == {"INF"}
 
 
@@ -173,8 +172,12 @@ def test_solo_tesoreria_registra_pagos(sesion_sembrada):
         repositorio.registrar_pago(s, tes1, exp["id"], fecha_pago=date(2026, 11, 10), monto=0)
     # Pago posterior a la conformidad: no alerta.
     repositorio.registrar_pago(s, tes1, exp["id"], fecha_pago=date(2026, 11, 20),
-                               monto=exp["monto"])
-    assert len(repositorio.listar_pagos(s, tes1, exp["id"])) == antes + 1
+                              monto=exp["monto"], referencia_siaf=" 2026-000125 ")
+    pagos = repositorio.listar_pagos(s, tes1, exp["id"])
+    assert len(pagos) == antes + 1
+    assert pagos[-1]["referencia_siaf"] == "2026-000125"
+    eventos = repositorio.linea_de_tiempo(s, tes1, exp["id"])
+    assert eventos[-1]["detalle"]["referencia_siaf"] == "2026-000125"
     assert repositorio.listar_alertas(s, tes1, expediente_id=exp["id"]) == []
 
 

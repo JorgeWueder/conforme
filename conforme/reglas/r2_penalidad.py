@@ -1,7 +1,4 @@
-"""R2: hubo atraso en la entrega y la penalidad aplicada es menor que la esperada.
-
-La fórmula y sus constantes están en normativa.py (POR VERIFICAR).
-"""
+"""R2: estima la diferencia que corresponde revisar si el atraso es imputable."""
 from conforme import normativa
 from conforme.reglas.modelo import AlertaPropuesta, FotoExpediente, dias, fecha, soles
 
@@ -9,8 +6,9 @@ from conforme.reglas.modelo import AlertaPropuesta, FotoExpediente, dias, fecha,
 def evaluar(foto: FotoExpediente) -> list[AlertaPropuesta]:
     if foto.conformidad is None or foto.fecha_entrega_real is None:
         return []
-    atraso = normativa.dias_de_atraso(foto.fecha_orden, foto.plazo_dias, foto.fecha_entrega_real)
-    if atraso == 0:
+    limite = normativa.fecha_limite(foto.fecha_orden, foto.plazo_dias, foto.fecha_inicio_prestacion)
+    atraso = (foto.fecha_entrega_real - limite).days
+    if atraso <= 0:
         return []
     diaria = normativa.penalidad_diaria(foto.monto, foto.plazo_dias)
     calculada = normativa._redondear(diaria * atraso)
@@ -20,19 +18,19 @@ def evaluar(foto: FotoExpediente) -> list[AlertaPropuesta]:
     if esperada - aplicada <= normativa.PENALIDAD_TOLERANCIA:
         return []
 
-    limite = normativa.fecha_limite(foto.fecha_orden, foto.plazo_dias)
     calculo = f"{dias(atraso)} de atraso × {soles(diaria)} por día = {soles(calculada)}"
     if calculada > tope:
-        calculo += f", que supera el tope de {soles(tope)}; se esperan {soles(esperada)}"
+        calculo += f", con un tope de {soles(tope)}"
     else:
-        calculo += f" esperados (tope {soles(tope)})"
+        calculo += f" (tope {soles(tope)})"
     return [AlertaPropuesta(
         regla="R2",
         clave="penalidad",
         explicacion=(
-            f"La entrega venció el {fecha(limite)} y se recibió el "
-            f"{fecha(foto.fecha_entrega_real)}. {calculo}; aplicado {soles(aplicada)}. "
-            f"Diferencia: {soles(esperada - aplicada)}."
+            f"La fecha límite considerada es el {fecha(limite)} y la entrega se recibió el "
+            f"{fecha(foto.fecha_entrega_real)}. {calculo}. "
+            f"Importe aplicado: {soles(aplicada)}. Diferencia estimada: {soles(esperada - aplicada)}. "
+            "Revisar si el atraso es imputable al proveedor y si corresponde la penalidad según la orden."
         ),
         datos={
             "dias_atraso": atraso,

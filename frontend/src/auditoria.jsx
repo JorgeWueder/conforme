@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { ExternalLink, Search, ShieldCheck, X } from "lucide-react";
 import { Link, useSearchParams } from "react-router";
 import { api, useAccion, useDatos } from "./api";
-import { ACCIONES, AVISO_ALERTAS, ESTADOS, REVISIONES, SEVERIDADES, fechaHora, rutaExpediente } from "./dominio";
-import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Indicador, Resumen, Tabla } from "./ui";
+import { ACCIONES, AVISO_ALERTAS, ESTADOS, REVISIONES, SEVERIDADES, alertaPendiente, fechaHora, nombreAlerta, rutaExpediente } from "./dominio";
+import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Indicador, ReferenciaRegla, Resumen, Tabla } from "./ui";
 
 function RevisionAlerta({ alerta, reglas, actor, recargar }) {
   const recurso = useDatos(`/alertas/${alerta.id}/revisiones`);
@@ -30,17 +30,18 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
   return (
     <section className="seccion">
       <div className="fila-titulo">
-        <h2>{alerta.expediente} · {alerta.regla} · {reglas[alerta.regla]}</h2>
+        <h2>{alerta.expediente} · {alerta.regla} · {nombreAlerta(alerta, reglas)}</h2>
         <Link className="boton" to={rutaExpediente(alerta.expediente_id)}><ExternalLink size={16} /> Abrir expediente</Link>
       </div>
       <article className="panel ficha">
         <div className="acciones">
-          <Indicador tono={alerta.severidad === "alta" ? "rojo" : "ambar"}>{SEVERIDADES[alerta.severidad]}</Indicador>
-          <Indicador>{ESTADOS[alerta.estado]}</Indicador>
+          {alerta.vigente !== false && <Indicador tono={alerta.severidad === "alta" ? "rojo" : "ambar"}>{SEVERIDADES[alerta.severidad]}</Indicador>}
+          <Indicador>{alerta.vigente === false ? "Criterio anterior" : ESTADOS[alerta.estado]}</Indicador>
           <small>Creada el {fechaHora(alerta.creada_en)}</small>
         </div>
         <p>{alerta.explicacion}</p>
         {alerta.implicado && <small>Persona implicada: {alerta.implicado}</small>}
+        <ReferenciaRegla alerta={alerta} />
       </article>
       <h3>Historial de la alerta</h3>
       {recurso.datos ? recurso.datos.length ? (
@@ -53,7 +54,7 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
         ))}</div>
       ) : <p className="vacio">Sin descargos ni revisiones.</p> : <Carga recurso={recurso} />}
       <EstadoAccion accion={accion} />
-      {alerta.estado === "cerrada" ? <Aviso>Alerta cerrada. Su revisión se conserva en la bitácora.</Aviso> : <>
+      {alertaPendiente(alerta) && <>
         {puedeDescargar && <form className="panel formulario" onSubmit={(e) => revisar(e, "descargo")}>
           <h3>Presentar descargo</h3>
           <Campo titulo="Explica lo ocurrido"><textarea name="texto" required /></Campo>
@@ -72,7 +73,7 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
             </div>
           </form>
         )}
-        {!puedeRevisar && !puedeDescargar && <small>Cierran o escalan alertas tesorería y auditoría.</small>}
+        {!puedeRevisar && !puedeDescargar && <small>El cierre y el escalamiento corresponden a Tesorería y al OCI.</small>}
       </>}
     </section>
   );
@@ -80,19 +81,21 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
 
 /** Alertas en las que la persona puede actuar ahora: descargo (área usuaria) o cierre/escalamiento. */
 export function meToca(alerta, actor) {
+  if (!alertaPendiente(alerta)) return false;
   const implicado = alerta.persona_implicada_id === actor.persona_id;
   if (actor.rol === "area_usuaria") {
     return alerta.estado === "abierta" && (implicado || alerta.conformante_id === actor.persona_id);
   }
-  return alerta.estado !== "cerrada" && !implicado;
+  return !implicado;
 }
 
 const VISTAS_ALERTA = {
   atender: { titulo: "Por atender", filtro: meToca },
-  abierta: { titulo: "Abiertas", filtro: (a) => a.estado === "abierta" },
-  con_descargo: { titulo: "Con descargo", filtro: (a) => a.estado === "con_descargo" },
-  escalada: { titulo: "Escaladas", filtro: (a) => a.estado === "escalada" },
-  cerrada: { titulo: "Cerradas", filtro: (a) => a.estado === "cerrada" },
+  abierta: { titulo: "Abiertas", filtro: (a) => a.estado === "abierta" && alertaPendiente(a) },
+  con_descargo: { titulo: "Con descargo", filtro: (a) => a.estado === "con_descargo" && alertaPendiente(a) },
+  escalada: { titulo: "Escaladas", filtro: (a) => a.estado === "escalada" && alertaPendiente(a) },
+  cerrada: { titulo: "Cerradas", filtro: (a) => a.estado === "cerrada" && a.vigente !== false },
+  todas: { titulo: "Todas", filtro: () => true },
 };
 const AYUDA_ATENDER = {
   area_usuaria: "Alertas abiertas donde puedes presentar descargo",
@@ -106,7 +109,8 @@ export function Alertas({ actor }) {
   const recurso = useDatos("/alertas");
   const [params, setParams] = useSearchParams();
   const seleccion = params.get("alerta") ?? "";
-  const vista = params.has("ver") ? (VISTAS_ALERTA[params.get("ver")] ? params.get("ver") : null) : "atender";
+  const filtro = params.get("ver");
+  const vista = filtro === null ? "atender" : Object.hasOwn(VISTAS_ALERTA, filtro) ? filtro : null;
   const regla = params.get("regla") ?? "";
   const panel = useRef(null);
   function cambiar(clave, valor) {
@@ -119,32 +123,38 @@ export function Alertas({ actor }) {
   useEffect(() => {
     if (seleccion && panel.current) panel.current.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [seleccion, recurso.datos]);
-  if (!recurso.datos) return <><Encabezado titulo="Alertas" descripcion={AVISO_ALERTAS} /><Carga recurso={recurso} /></>;
+  if (!recurso.datos) return <><Encabezado titulo="Bandeja de alertas" descripcion={AVISO_ALERTAS} /><Carga recurso={recurso} /></>;
   const { alertas, reglas } = recurso.datos;
   const opciones = Object.fromEntries(Object.entries(reglas).map(([clave, nombre]) => [clave, `${clave} · ${nombre}`]));
   const elegida = alertas.find((a) => String(a.id) === seleccion);
-  const filas = alertas
+  const tipo = (params.get("tipo") ?? elegida?.tipo_prestacion) === "bien" ? "bien" : "servicio";
+  const delTipo = alertas.filter((a) => a.tipo_prestacion === tipo);
+  const filas = delTipo
     .filter((a) => (!vista || VISTAS_ALERTA[vista].filtro(a, actor)) && (!regla || a.regla === regla))
     .sort(prioridad);
   const columnas = [
     { titulo: "N.º", valor: (a) => a.id, render: (a) => <Link to={`?${new URLSearchParams({ ...Object.fromEntries(params), alerta: a.id })}`}>{a.id}</Link> },
-    { titulo: "Severidad", valor: (a) => a.severidad, render: (a) => <Indicador tono={a.severidad === "alta" ? "rojo" : "ambar"}>{SEVERIDADES[a.severidad]}</Indicador> },
-    { titulo: "Regla", valor: (a) => opciones[a.regla], clase: "celda-texto" },
+    { titulo: "Severidad", valor: (a) => a.severidad, render: (a) => a.vigente === false ? "—"
+      : <Indicador tono={a.severidad === "alta" ? "rojo" : "ambar"}>{SEVERIDADES[a.severidad]}</Indicador> },
+    { titulo: "Regla", valor: (a) => a.regla + " · " + nombreAlerta(a, reglas), clase: "celda-texto" },
     { titulo: "Expediente", valor: (a) => a.expediente },
     ...(actor.rol === "area_usuaria" ? [] : [{ titulo: "Área", valor: (a) => a.area_sigla }]),
-    { titulo: "Estado", valor: (a) => ESTADOS[a.estado] },
+    { titulo: "Estado", valor: (a) => a.vigente === false ? "Criterio anterior" : ESTADOS[a.estado] },
     { titulo: "Persona implicada", valor: (a) => a.implicado, clase: "celda-texto" },
     { titulo: "Creada", valor: (a) => a.creada_en, render: (a) => fechaHora(a.creada_en) },
   ];
   return (
     <>
-      <Encabezado titulo="Alertas" descripcion={AVISO_ALERTAS} />
+      <Encabezado titulo="Bandeja de alertas" descripcion={AVISO_ALERTAS} />
       <Resumen activo={vista} onChange={(clave) => cambiar("ver", clave ?? "todas")}
         opciones={Object.entries(VISTAS_ALERTA).map(([clave, { titulo, filtro }]) => ({
-          clave, titulo, valor: alertas.filter((a) => filtro(a, actor)).length,
+          clave, titulo, valor: delTipo.filter((a) => filtro(a, actor)).length,
           tono: clave === "atender" ? "ambar" : "neutro", ayuda: clave === "atender" ? AYUDA_ATENDER[actor.rol] : undefined,
         }))} />
       <div className="barra-filtros">
+        <Campo titulo="Tipo de prestación"><select value={tipo} onChange={(e) => cambiar("tipo", e.target.value)}>
+          <option value="servicio">Servicios</option><option value="bien">Bienes</option>
+        </select></Campo>
         <Campo titulo="Regla"><select value={regla} onChange={(e) => cambiar("regla", e.target.value)}>
           <option value="">Todas las reglas</option>
           {Object.entries(opciones).map(([clave, nombre]) => <option key={clave} value={clave}>{nombre}</option>)}
@@ -160,7 +170,6 @@ export function Alertas({ actor }) {
       </div>}
       <p className="secundario">
         {filas.length} {filas.length === 1 ? "alerta" : "alertas"}{vista ? ` · ${VISTAS_ALERTA[vista].titulo.toLowerCase()}` : " en total"}.
-        {" "}Ordenadas por severidad. Pulsa una fila para revisarla.
       </p>
       <Tabla columnas={columnas} filas={filas} etiqueta="Bandeja de alertas" elegida={elegida?.id}
         alElegir={(fila) => cambiar("alerta", String(fila.id))}
@@ -195,7 +204,7 @@ export function Bitacora() {
   }
   return (
     <>
-      <Encabezado titulo="Bitácora" descripcion="Cada registro guarda la huella del anterior. Verifica la cadena para detectar modificaciones."
+      <Encabezado titulo="Bitácora" descripcion="Registro de actuaciones y verificación de integridad."
         acciones={<button className="primario" onClick={verificar} disabled={accion.pendiente}><ShieldCheck size={17} />
           {accion.pendiente ? "Verificando…" : "Verificar integridad"}</button>} />
       <EstadoAccion accion={accion} />

@@ -33,18 +33,18 @@ N_EXPEDIENTES = 300  # incluye el caso estrella
 
 # (nombre, sigla, rol de sus usuarios)
 AREAS = [
-    ("Logística y Abastecimiento", "LOG", "area_usuaria"),
-    ("Tesorería", "TES", "tesoreria"),
+    ("Unidad de Abastecimiento", "LOG", "area_usuaria"),
+    ("Unidad de Tesorería", "TES", "tesoreria"),
     ("Órgano de Control Institucional", "OCI", "auditor"),
-    ("Tecnologías de la Información", "TI", "area_usuaria"),
-    ("Recursos Humanos", "RH", "area_usuaria"),
-    ("Infraestructura y Mantenimiento", "INF", "area_usuaria"),
-    ("Comunicaciones e Imagen", "COM", "area_usuaria"),
-    ("Asesoría Jurídica", "AJ", "area_usuaria"),
-    ("Planeamiento y Presupuesto", "PP", "area_usuaria"),
-    ("Servicios Generales", "SG", "area_usuaria"),
-    ("Bienestar y Capacitación", "BC", "area_usuaria"),
-    ("Gestión Ambiental", "GA", "area_usuaria"),
+    ("Oficina de Tecnologías de la Información", "TI", "area_usuaria"),
+    ("Unidad de Recursos Humanos", "RH", "area_usuaria"),
+    ("Facultad de Ingeniería Química", "INF", "area_usuaria"),
+    ("Oficina de Comunicación e Imagen Institucional", "COM", "area_usuaria"),
+    ("Oficina de Asesoría Jurídica", "AJ", "area_usuaria"),
+    ("Oficina de Planeamiento y Presupuesto", "PP", "area_usuaria"),
+    ("Unidad de Servicios Generales", "SG", "area_usuaria"),
+    ("Dirección de Bienestar Universitario", "BC", "area_usuaria"),
+    ("Dirección de Investigación y Ética", "GA", "area_usuaria"),
 ]
 CARGOS = ["Jefatura de área", "Especialista", "Analista", "Asistente administrativo", "Técnico"]
 
@@ -56,16 +56,16 @@ _RAZON_2 = ["Andina", "del Pacífico", "Altiplano", "Sol Naciente", "Cordillera"
 _RAZON_SUFIJO = ["S.A.C.", "E.I.R.L.", "S.R.L.", "S.A."]
 
 _SERVICIOS = [
-    "Servicio de mantenimiento de equipos de cómputo",
+    "Servicio de mantenimiento de equipos de cómputo de aulas y laboratorios",
     "Servicio de limpieza y desinfección de ambientes",
-    "Servicio de vigilancia y seguridad",
-    "Servicio de impresión de material institucional",
-    "Servicio de capacitación al personal",
+    "Servicio de vigilancia de la Ciudad Universitaria",
+    "Servicio de impresión de material académico",
+    "Servicio de capacitación en gestión de proyectos de investigación",
     "Servicio de soporte y desarrollo de software",
     "Servicio de mantenimiento de áreas verdes",
     "Servicio de pintado de fachadas e interiores",
     "Servicio de consultoría para diagnóstico de procesos",
-    "Servicio de transporte de personal",
+    "Servicio de transporte para actividades de campo",
     "Servicio de fumigación y control de plagas",
     "Servicio de mantenimiento de ascensores",
 ]
@@ -230,7 +230,7 @@ def _conformidad(rng: random.Random, exp: dict, numeros: list[int], conformante_
 
 
 def _pago(rng: random.Random, exp: dict, fecha_pago: date, penalidad: Decimal,
-          tesoreros: list[dict]) -> tuple[dict, dict]:
+          tesoreros: list[dict], *, registrado_por_dni: str | None = None) -> tuple[dict, dict]:
     ts = _momento(rng, fecha_pago)
     pago = {
         "expediente_codigo": exp["codigo"],
@@ -238,8 +238,11 @@ def _pago(rng: random.Random, exp: dict, fecha_pago: date, penalidad: Decimal,
         "monto": exp["monto"] - penalidad,
         "penalidad_descontada": penalidad,
         "registrado_por_dni": rng.choice(tesoreros)["dni"],
+        "referencia_siaf": f"{fecha_pago.year}-{int(exp['codigo'].split('-')[-1]):06d}",
         "registrado_en": ts,
     }
+    if registrado_por_dni is not None:
+        pago["registrado_por_dni"] = registrado_por_dni
     evento = {
         "ts": ts,
         "actor_dni": pago["registrado_por_dni"],
@@ -248,7 +251,7 @@ def _pago(rng: random.Random, exp: dict, fecha_pago: date, penalidad: Decimal,
         "ref": ("pago", exp["codigo"]),
         "expediente_codigo": exp["codigo"],
         "detalle": {"fecha_pago": fecha_pago, "monto": pago["monto"],
-                    "penalidad_descontada": penalidad},
+                    "penalidad_descontada": penalidad, "referencia_siaf": pago["referencia_siaf"]},
         "documento_sha256": None,
     }
     return pago, evento
@@ -297,7 +300,7 @@ def _fase_2(rng: random.Random, generados: list[dict], estrella: dict,
         if etiqueta in ("R2", "ATRASO_OK"):
             atraso = rng.randint(3, 20)
             exp["fecha_entrega_real"] = (
-                normativa.fecha_limite(exp["fecha_orden"], exp["plazo_dias"])
+                normativa.fecha_limite(exp["fecha_orden"], exp["plazo_dias"], exp["fecha_inicio_prestacion"])
                 + timedelta(days=atraso))
             esperada = normativa.penalidad_esperada(exp["monto"], exp["plazo_dias"], atraso)
             if etiqueta == "ATRASO_OK":
@@ -313,7 +316,7 @@ def _fase_2(rng: random.Random, generados: list[dict], estrella: dict,
         if etiqueta == "R4":
             conformante = exp["solicitante_dni"]
             anomalias.append({"expediente_codigo": codigo, "regla": "R4",
-                              "nota": "Solicitante y conformante son la misma persona."})
+                              "nota": "La misma persona otorgó la conformidad y figura en el registro del pago."})
         else:
             conformante = rng.choice(
                 [p for p in por_area[exp["area_sigla"]] if p["dni"] != exp["solicitante_dni"]]
@@ -321,6 +324,8 @@ def _fase_2(rng: random.Random, generados: list[dict], estrella: dict,
 
         if etiqueta == "R3":
             espera = rng.randint(normativa.CONFORMIDAD_PLAZO_MAXIMO_DIAS + 1, 25)
+            maximo = normativa.plazo_conformidad(exp["conformidad_plazo_especial"])
+            espera += maximo - normativa.CONFORMIDAD_PLAZO_MAXIMO_DIAS
             anomalias.append({"expediente_codigo": codigo, "regla": "R3",
                               "nota": f"Conformidad {espera} días después de la entrega."})
         else:
@@ -340,15 +345,21 @@ def _fase_2(rng: random.Random, generados: list[dict], estrella: dict,
         conformidades.append(conformidad)
         eventos.extend(eventos_conformidad)
 
+        rng_pago = rng
         if etiqueta == "R5B":
             fecha_pago = fecha_conformidad - timedelta(days=rng.randint(1, 10))
             anomalias.append({"expediente_codigo": codigo, "regla": "R5",
                               "nota": "Pago anterior a la fecha de la conformidad."})
         elif rng.random() < _PROPORCION_CON_PAGO:
             fecha_pago = fecha_conformidad + timedelta(days=rng.randint(3, 15))
+        elif etiqueta == "R4":
+            # Completa el caso de segregación sin cambiar los demás datos de la siembra.
+            rng_pago = random.Random(codigo)
+            fecha_pago = fecha_conformidad + timedelta(days=3)
         else:
             continue
-        pago, evento = _pago(rng, exp, fecha_pago, penalidad, por_area["TES"])
+        pago, evento = _pago(rng_pago, exp, fecha_pago, penalidad, por_area["TES"],
+                             registrado_por_dni=conformante if etiqueta == "R4" else None)
         pagos.append(pago)
         eventos.append(evento)
 
@@ -522,7 +533,7 @@ def generar(semilla: int = SEMILLA) -> dict:
                 "dni": dni,
                 "nombres": fake.first_name(),
                 "apellidos": f"{fake.last_name()} {fake.last_name()}",
-                "cargo": CARGOS[i],
+                "cargo": "Docente responsable del proyecto" if sigla == caso_estrella.AREA_SIGLA and i == 0 else CARGOS[i],
                 "area_sigla": sigla,
             })
             usuarios.append({"username": f"{sigla.lower()}{i + 1}", "persona_dni": dni, "rol": rol})
@@ -561,6 +572,7 @@ def generar(semilla: int = SEMILLA) -> dict:
             "proveedor_ruc": rng.choice(proveedores)["ruc"],
             "solicitante_dni": rng.choice(por_area[sigla])["dni"],
             "numero_orden": f"{'OS' if tipo == 'servicio' else 'OC'}-2026-{n:05d}",
+            "proyecto_referencia": f"PIC-2026-{n:03d}" if tipo == "servicio" and sigla in ("INF", "GA") else None,
             "fecha_requerimiento": requerimiento,
             "fecha_orden": orden,
             "fecha_inicio_prestacion": inicio,
@@ -582,6 +594,8 @@ def generar(semilla: int = SEMILLA) -> dict:
     # azar propio: lo demás (y las anomalías de R1–R5) no cambia.
     patrones = _sembrar_patrones(random.Random(semilla + 3), expedientes[:-1], expedientes,
                                  proveedores)
+    for exp in expedientes:
+        exp["conformidad_plazo_especial"] = exp["descripcion"].startswith("Servicio de consultoría")
 
     # F2 usa su propio generador de azar: así los datos de F1 no cambian.
     fase_2 = _fase_2(random.Random(semilla + 2), expedientes[:-1], estrella,

@@ -59,6 +59,7 @@ class FotoExpediente:
     proveedor: str = ""
     fecha_requerimiento: date | None = None
     fecha_inicio_prestacion: date | None = None
+    conformidad_plazo_especial: bool = False
     # Expedientes del mismo proveedor y área con (fecha de orden, id) anterior al
     # de este, dentro de normativa.VENTANA_MAXIMA_ENTRE_EXPEDIENTES_DIAS. Cada regla
     # aplica su propia ventana.

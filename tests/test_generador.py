@@ -38,12 +38,12 @@ def _n_evidencias(conjunto):
 def test_anomalias_sembradas_por_regla():
     c = generador.generar()
     por_regla = Counter(a["regla"] for a in c["anomalias"])
-    # 5 por regla + R1, R2 y R4 del caso estrella; R6: 4 series; R7: 5 pares; R8: 5
-    assert por_regla == {"R1": 6, "R2": 6, "R3": 5, "R4": 6, "R5": 5,
+    # 5 por regla + R1 y R2 del caso estrella; R6: 4 series; R7: 5 pares; R8: 5
+    assert por_regla == {"R1": 6, "R2": 6, "R3": 5, "R4": 5, "R5": 5,
                          "R6": 4, "R7": 5, "R8": 5}
     parejas = [(a["expediente_codigo"], a["regla"]) for a in c["anomalias"]]
     assert len(parejas) == len(set(parejas))
-    assert sorted(r for cod, r in parejas if cod == caso_estrella.CODIGO) == ["R1", "R2", "R4"]
+    assert sorted(r for cod, r in parejas if cod == caso_estrella.CODIGO) == ["R1", "R2"]
 
 
 def test_todo_expediente_tiene_entregables_numerados_desde_1():
@@ -84,7 +84,8 @@ def test_solo_hay_atraso_donde_se_sembro_o_se_aplico_la_penalidad_completa():
     for x in c["expedientes"]:
         if x["fecha_entrega_real"] is None:
             continue
-        atraso = normativa.dias_de_atraso(x["fecha_orden"], x["plazo_dias"], x["fecha_entrega_real"])
+        atraso = normativa.dias_de_atraso(x["fecha_orden"], x["plazo_dias"], x["fecha_entrega_real"],
+                                         x["fecha_inicio_prestacion"])
         if atraso == 0:
             continue
         atrasados.add(x["codigo"])
@@ -98,7 +99,7 @@ def test_solo_hay_atraso_donde_se_sembro_o_se_aplico_la_penalidad_completa():
 
 def test_caso_estrella_tiene_12_dias_de_atraso():
     x = next(e for e in generador.generar()["expedientes"] if e["codigo"] == caso_estrella.CODIGO)
-    limite = x["fecha_orden"] + timedelta(days=x["plazo_dias"])
+    limite = x["fecha_inicio_prestacion"] + timedelta(days=x["plazo_dias"] - 1)
     assert (x["fecha_entrega_real"] - limite).days == 12
     assert x["tipo"] == "servicio"
 
@@ -121,10 +122,10 @@ def test_siembra_en_base(sesion_sembrada):
     assert contar("conformidad_entregable") == sum(len(x["items"]) for x in c["conformidades"])
     assert contar("evidencia") == _n_evidencias(c)
     assert contar("pago") == 207
-    assert contar("anomalia_sembrada") == 42
-    assert contar("alerta") == 42
+    assert contar("anomalia_sembrada") == 41
+    assert contar("alerta") == 41
     # + una "alerta.generada" por alerta + una "conformidad.sellada" por conformidad
-    assert contar("bitacora") == len(c["eventos"]) + 42 + 246
+    assert contar("bitacora") == len(c["eventos"]) + 41 + 246
 
 
 def test_r6_a_r8_no_tocan_los_expedientes_de_la_demo_ni_el_caso_estrella():

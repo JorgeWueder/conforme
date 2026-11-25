@@ -1,7 +1,7 @@
 import { cloneElement, useId, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, CircleAlert, CircleCheck, Info } from "lucide-react";
 import { Link, useLocation } from "react-router";
-import { SEMAFOROS, estadoEntregable } from "./dominio";
+import { REFERENCIAS_REGLAS, SEMAFOROS, estadoEntregable } from "./dominio";
 
 export function Encabezado({ titulo, descripcion, acciones, children }) {
   return (
@@ -43,6 +43,13 @@ export function Semaforo({ color }) {
   return <Indicador tono={color}><span className="punto" />{SEMAFOROS[color]}</Indicador>;
 }
 
+export function ReferenciaRegla({ alerta }) {
+  const referencia = alerta.vigente === false ? null : REFERENCIAS_REGLAS[alerta.regla];
+  if (!referencia) return null;
+  const [texto, url] = referencia;
+  return <small className="referencia-regla"><a href={url} target="_blank" rel="noreferrer">{texto}</a></small>;
+}
+
 export function EstadoEntregable({ item }) {
   const [texto, tono] = estadoEntregable(item);
   return <Indicador tono={tono}>{texto}</Indicador>;
@@ -62,14 +69,6 @@ export function Campo({ titulo, ayuda, icono, children }) {
       {icono ? <span className="control-icono">{icono}{control}</span> : control}
       {ayuda && <small id={`${id}-ayuda`}>{ayuda}</small>}
     </div>
-  );
-}
-
-export function Metricas({ valores }) {
-  return (
-    <dl className="metricas">
-      {valores.map(([titulo, valor]) => <div key={titulo}><dt>{titulo}</dt><dd>{valor}</dd></div>)}
-    </dl>
   );
 }
 
@@ -120,11 +119,11 @@ export function Tabla({ columnas, filas, etiqueta, vacio = "No hay resultados.",
   return (
     <div className="tabla-scroll" tabIndex={0} role="region" aria-label={etiqueta}>
       <table>
-        <thead><tr>{columnas.map(({ titulo }) => {
+        <thead><tr>{columnas.map(({ titulo, clase }) => {
           const activa = orden?.titulo === titulo;
           const Icono = activa ? (orden.ascendente ? ArrowUp : ArrowDown) : ArrowUpDown;
           return (
-            <th key={titulo} scope="col" aria-sort={activa ? (orden.ascendente ? "ascending" : "descending") : undefined}>
+            <th key={titulo} className={clase} scope="col" aria-sort={activa ? (orden.ascendente ? "ascending" : "descending") : undefined}>
               <button type="button" onClick={() => setOrden({ titulo, ascendente: !activa || !orden.ascendente })}>
                 {titulo}<Icono size={13} aria-hidden="true" />
               </button>
@@ -133,7 +132,7 @@ export function Tabla({ columnas, filas, etiqueta, vacio = "No hay resultados.",
         })}</tr></thead>
         <tbody>{ordenadas.map((fila) => (
           // Toda la fila es clicable con el ratón; con teclado se usa el enlace de la primera columna.
-          <tr key={fila.id ?? fila.numero} className={`${alElegir ? "clicable" : ""} ${elegida === fila.id ? "elegida" : ""}`}
+          <tr key={fila.id ?? fila.numero} className={`${alElegir ? "clicable" : ""} ${elegida != null && elegida === fila.id ? "elegida" : ""}`}
             onClick={alElegir ? (evento) => { if (!evento.target.closest("a, button")) alElegir(fila); } : undefined}>
             {columnas.map(({ titulo, valor, render, clase }) => (
               <td key={titulo} className={clase}>{render ? render(fila) : (valor(fila) ?? "—")}</td>

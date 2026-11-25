@@ -20,7 +20,7 @@ from conforme.modelos import (
     Alerta, AlertaRevision, Area, Bitacora, Conformidad, ConformidadEntregable,
     Entregable, Evidencia, Expediente, ExtraccionIA, Pago, Persona, Proveedor,
 )
-from conforme.normativa import SEVERIDAD_ALTA, SEVERIDAD_MEDIA
+from conforme.normativa import R4_CLAVE_ANTERIOR, SEVERIDAD_ALTA, SEVERIDAD_MEDIA
 from conforme.permisos import Actor, PermisoDenegado, exigir_rol, filtro_expedientes
 from conforme.reglas import motor, semaforo
 
@@ -31,6 +31,7 @@ def _nombre(persona=Persona):
 
 
 _NOMBRE_PERSONA = _nombre()
+_ALERTA_VIGENTE = or_(Alerta.regla != "R4", Alerta.clave != R4_CLAVE_ANTERIOR)
 
 
 def _alertas_sin_cerrar(severidad: str):
@@ -40,6 +41,7 @@ def _alertas_sin_cerrar(severidad: str):
             Alerta.expediente_id == Expediente.id,
             Alerta.severidad == severidad,
             Alerta.estado != ESTADO_CERRADA,
+            _ALERTA_VIGENTE,
         )
         .correlate(Expediente)
         .scalar_subquery()
@@ -66,6 +68,8 @@ def _consulta_expedientes(actor: Actor):
             _NOMBRE_PERSONA.label("solicitante"),
             Expediente.solicitante_id,
             Expediente.numero_orden,
+            Expediente.proyecto_referencia,
+            Expediente.conformidad_plazo_especial,
             Expediente.fecha_requerimiento,
             Expediente.fecha_orden,
             Expediente.fecha_inicio_prestacion,
@@ -91,6 +95,8 @@ def listar_expedientes(sesion: Session, actor: Actor, texto: str | None = None) 
         consulta = consulta.where(
             or_(
                 Expediente.codigo.ilike(patron),
+                Expediente.numero_orden.ilike(patron),
+                Expediente.proyecto_referencia.ilike(patron),
                 Expediente.descripcion.ilike(patron),
                 Proveedor.razon_social.ilike(patron),
             )
@@ -191,6 +197,7 @@ def crear_expediente(
     numero_orden: str, fecha_requerimiento: date, fecha_orden: date,
     fecha_inicio_prestacion: date | None, plazo_dias: int, monto,
     entregables: list[dict], origen_entregables: str = "manual",
+    proyecto_referencia: str | None = None, conformidad_plazo_especial: bool = False,
 ) -> int:
     """Alta de un expediente del área del actor, con sus entregables. Solo área usuaria."""
     exigir_rol(actor, ROL_AREA_USUARIA)
@@ -201,6 +208,9 @@ def crear_expediente(
         raise ErrorValidacion("Falta la descripción del expediente.")
     if not numero_orden:
         raise ErrorValidacion("Falta el número de la orden.")
+    proyecto = (proyecto_referencia or "").strip()
+    if len(proyecto) > 120:
+        raise ErrorValidacion("La referencia del proyecto admite hasta 120 caracteres.")
     if fecha_orden < fecha_requerimiento:
         raise ErrorValidacion("La fecha de la orden no puede ser anterior al requerimiento.")
     if fecha_inicio_prestacion and fecha_inicio_prestacion < fecha_orden:
@@ -208,11 +218,13 @@ def crear_expediente(
     if not isinstance(plazo_dias, int) or plazo_dias <= 0:
         raise ErrorValidacion("El plazo debe ser un número entero de días mayor que cero.")
     monto = _monto(monto, "Monto", permite_cero=False)
-    if origen_entregables not in ("manual", "csv"):
+    if origen_entregables not in ("manual", "csv", "tdr"):
         raise ErrorValidacion("Origen de entregables no admitido.")
     if sesion.get(Proveedor, proveedor_id) is None:
         raise ErrorValidacion("El proveedor elegido no existe.")
-    limpios, errores = validacion_entregables.validar(entregables)
+    if origen_entregables == "tdr" and entregables:
+        raise ErrorValidacion("Los entregables de los TDR se añaden después de aprobar la propuesta.")
+    limpios, errores = ([], []) if origen_entregables == "tdr" else validacion_entregables.validar(entregables)
     if errores:
         raise ErrorValidacion("Entregables: " + " ".join(errores))
 
@@ -225,6 +237,7 @@ def crear_expediente(
     expediente = Expediente(
         codigo=codigo, tipo=tipo, descripcion=descripcion, area_id=actor.area_id,
         proveedor_id=proveedor_id, solicitante_id=actor.persona_id, numero_orden=numero_orden,
+        proyecto_referencia=proyecto or None, conformidad_plazo_especial=conformidad_plazo_especial,
         fecha_requerimiento=fecha_requerimiento, fecha_orden=fecha_orden,
         fecha_inicio_prestacion=fecha_inicio_prestacion, plazo_dias=plazo_dias,
         fecha_entrega_real=None, monto=monto, creado_en=datetime.now(timezone.utc),
@@ -243,6 +256,8 @@ def crear_expediente(
         detalle={
             "codigo": codigo, "monto": monto, "plazo_dias": plazo_dias,
             "numero_orden": numero_orden, "entregables": len(limpios),
+            "proyecto_referencia": proyecto or None,
+            "conformidad_plazo_especial": conformidad_plazo_especial,
             "origen_entregables": origen_entregables,
             "resumen": f"{len(limpios)} entregables cargados ({origen_entregables}).",
         },
@@ -410,6 +425,7 @@ def listar_pagos(sesion: Session, actor: Actor, expediente_id: int) -> list[dict
     filas = sesion.execute(
         select(
             Pago.id, Pago.fecha_pago, Pago.monto, Pago.penalidad_descontada,
+            Pago.referencia_siaf,
             _NOMBRE_PERSONA.label("registrado_por"), Pago.registrado_en,
         )
         .join(Persona, Persona.id == Pago.registrado_por)
@@ -421,18 +437,22 @@ def listar_pagos(sesion: Session, actor: Actor, expediente_id: int) -> list[dict
 
 def registrar_pago(
     sesion: Session, actor: Actor, expediente_id: int, *, fecha_pago: date, monto,
-    penalidad_descontada=0,
+    penalidad_descontada=0, referencia_siaf: str | None = None,
 ) -> int:
     """Registra un pago. Solo tesorería. No se bloquea: si falta conformidad, alerta (R5)."""
     exigir_rol(actor, ROL_TESORERIA)
     expediente = _expediente_en_alcance(sesion, actor, expediente_id)
     monto = _monto(monto, "Monto pagado", permite_cero=False)
     penalidad = _monto(penalidad_descontada, "Penalidad descontada", permite_cero=True)
+    referencia = (referencia_siaf or "").strip()
+    if len(referencia) > 60:
+        raise ErrorValidacion("La referencia SIAF admite hasta 60 caracteres.")
     if fecha_pago < expediente.fecha_orden:
         raise ErrorValidacion("El pago no puede ser anterior a la orden.")
     pago = Pago(
         expediente_id=expediente.id, fecha_pago=fecha_pago, monto=monto,
         penalidad_descontada=penalidad, registrado_por=actor.persona_id,
+        referencia_siaf=referencia or None,
         registrado_en=datetime.now(timezone.utc),
     )
     sesion.add(pago)
@@ -440,7 +460,8 @@ def registrar_pago(
     bitacora.registrar(
         sesion, actor_id=actor.persona_id, accion="pago.registrado", entidad="pago",
         entidad_id=pago.id, expediente_id=expediente.id,
-        detalle={"fecha_pago": fecha_pago, "monto": monto, "penalidad_descontada": penalidad},
+        detalle={"fecha_pago": fecha_pago, "monto": monto, "penalidad_descontada": penalidad,
+                 "referencia_siaf": referencia or None},
     )
     motor.sincronizar(sesion, [expediente.id])
     return pago.id
@@ -466,9 +487,11 @@ def listar_alertas(
             Alerta.id, Alerta.regla, Alerta.clave, Alerta.severidad, Alerta.explicacion,
             Alerta.datos, Alerta.estado, Alerta.creada_en, Alerta.actualizada_en,
             Alerta.expediente_id, Expediente.codigo.label("expediente"),
+            Expediente.tipo.label("tipo_prestacion"),
             Area.sigla.label("area_sigla"), Alerta.persona_implicada_id,
             _nombre(implicada).label("implicado"),
             Conformidad.conformante_id,
+            _ALERTA_VIGENTE.label("vigente"),
         )
         .join(Expediente, Expediente.id == Alerta.expediente_id)
         .join(Area, Area.id == Expediente.area_id)
@@ -515,6 +538,8 @@ _ACCION_POR_REVISION = {
 
 def _revisar(sesion: Session, actor: Actor, alerta: Alerta, tipo: str, texto: str,
              nuevo_estado: str) -> None:
+    if alerta.regla == "R4" and alerta.clave == R4_CLAVE_ANTERIOR:
+        raise ErrorValidacion("Esta alerta corresponde a un criterio anterior.")
     ahora = datetime.now(timezone.utc)
     alerta.estado = nuevo_estado
     alerta.actualizada_en = ahora

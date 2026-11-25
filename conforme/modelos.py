@@ -63,6 +63,8 @@ class Expediente(Base):
     proveedor_id: Mapped[int] = mapped_column(ForeignKey("proveedor.id"))
     solicitante_id: Mapped[int] = mapped_column(ForeignKey("persona.id"))
     numero_orden: Mapped[str] = mapped_column(Text)
+    proyecto_referencia: Mapped[str | None] = mapped_column(Text)
+    conformidad_plazo_especial: Mapped[bool] = mapped_column(server_default="false")
     fecha_requerimiento: Mapped[date] = mapped_column(Date)
     fecha_orden: Mapped[date] = mapped_column(Date)
     fecha_inicio_prestacion: Mapped[date | None] = mapped_column(Date)
@@ -139,6 +141,7 @@ class Pago(Base):
     fecha_pago: Mapped[date] = mapped_column(Date)
     monto: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     penalidad_descontada: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    referencia_siaf: Mapped[str | None] = mapped_column(Text)
     registrado_por: Mapped[int] = mapped_column(ForeignKey("persona.id"))
     registrado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

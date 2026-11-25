@@ -1,7 +1,7 @@
 export const ROLES = {
   area_usuaria: "Área usuaria",
   tesoreria: "Tesorería",
-  auditor: "Auditoría",
+  auditor: "Órgano de Control Institucional",
 };
 export const ESTADOS = {
   abierta: "Abierta",
@@ -9,7 +9,7 @@ export const ESTADOS = {
   escalada: "Escalada",
   cerrada: "Cerrada",
 };
-export const SEMAFOROS = { rojo: "Rojo", ambar: "Ámbar", verde: "Verde" };
+export const SEMAFOROS = { rojo: "Alerta alta", ambar: "Alerta media", verde: "Sin alertas abiertas" };
 export const SEVERIDADES = { alta: "Alta", media: "Media" };
 export const REVISIONES = { descargo: "Descargo", cierre: "Cierre", escalamiento: "Escalamiento" };
 export const ACCIONES = {
@@ -24,11 +24,26 @@ export const ACCIONES = {
   "alerta.cerrada": "Alerta cerrada",
   "alerta.escalada": "Alerta escalada",
   "conformidad.sellada": "Conformidad sellada",
-  "ia.propuesta": "Lectura con IA",
-  "ia.aprobada": "Propuesta de IA aprobada",
-  "ia.rechazada": "Propuesta de IA rechazada",
+  "ia.propuesta": "TDR leído",
+  "ia.aprobada": "Propuesta de entregables aprobada",
+  "ia.rechazada": "Propuesta de entregables rechazada",
 };
-export const AVISO_ALERTAS = "Las alertas orientan la revisión. No bloquean pagos ni determinan responsabilidades.";
+export const AVISO_ALERTAS = "Señales para revisión antes del pago.";
+
+const REGLAMENTO = "https://cdn.www.gob.pe/uploads/document/file/9295551/6444155-ref-reglamento-de-la-ley-de-contrataciones-del-estado-con-modificaciones-posteriores-hasta-08-ene-2026-2-v2.pdf?v=1768513235";
+const LEY_CONTRATACIONES = "https://www.congreso.gob.pe/Docs/DGP/DIDP/files/ley_32069.pdf";
+export const REFERENCIAS_REGLAS = {
+  R1: ["Reglamento de la Ley N.º 32069, art. 144", REGLAMENTO],
+  R2: ["Reglamento de la Ley N.º 32069, arts. 119, 120 y 229", REGLAMENTO],
+  R3: ["Reglamento de la Ley N.º 32069, art. 144.3", REGLAMENTO],
+  R4: ["Normas de Control Interno, numeral 3.2", "https://apps.contraloria.gob.pe/wcm/control_interno/documentos/normativa/RC_320-2006-CG.pdf"],
+  R5: ["Ley N.º 32069, art. 67", LEY_CONTRATACIONES],
+};
+
+export const alertaPendiente = (a) => a.vigente !== false && a.estado !== "cerrada";
+export const nombreAlerta = (a, reglas) => a.vigente === false
+  ? "Solicitante y conformante son la misma persona"
+  : reglas[a.regla];
 
 const formatoSoles = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatoFechaHora = new Intl.DateTimeFormat("es-PE", {

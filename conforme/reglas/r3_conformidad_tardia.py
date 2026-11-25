@@ -1,7 +1,4 @@
-"""R3: la conformidad se emitió más días después de la entrega que el máximo.
-
-El máximo está en normativa.py (POR VERIFICAR).
-"""
+"""R3: la conformidad se emitió fuera del plazo general o especial registrado."""
 from conforme import normativa
 from conforme.reglas.modelo import AlertaPropuesta, FotoExpediente, dias, fecha
 
@@ -10,7 +7,7 @@ def evaluar(foto: FotoExpediente) -> list[AlertaPropuesta]:
     if foto.conformidad is None or foto.fecha_entrega_real is None:
         return []
     transcurridos = (foto.conformidad.fecha_conformidad - foto.fecha_entrega_real).days
-    maximo = normativa.CONFORMIDAD_PLAZO_MAXIMO_DIAS
+    maximo = normativa.plazo_conformidad(foto.conformidad_plazo_especial)
     if transcurridos <= maximo:
         return []
     return [AlertaPropuesta(

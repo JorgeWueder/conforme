@@ -2,12 +2,13 @@
 
 Cada prueba trabaja en una transacción que se revierte al terminar.
 """
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from conforme import bitacora, repositorio
 from conforme.errores import ErrorValidacion
+from conforme.modelos import Alerta
 from conforme.permisos import PermisoDenegado
 from datos import caso_estrella
 from tests.conftest import actor_de
@@ -74,14 +75,14 @@ def test_area_usuaria_no_cierra_ni_escala(sesion_sembrada):
 def test_solo_implicado_o_conformante_presentan_descargo(sesion_sembrada):
     s = sesion_sembrada
     _, alertas = _alertas_estrella(s, actor_de(s, "tes1"))
-    r4 = alertas["R4"]["id"]
+    r1 = alertas["R1"]["id"]
     for username in ("inf2", "tes1", "oci1"):  # ven la alerta, pero no figuran en ella
         with pytest.raises(PermisoDenegado):
-            repositorio.registrar_descargo(s, actor_de(s, username), r4, "Opino que está bien.")
+            repositorio.registrar_descargo(s, actor_de(s, username), r1, "Opino que está bien.")
     with pytest.raises(PermisoDenegado):  # otra área: ni siquiera la ve
-        repositorio.registrar_descargo(s, actor_de(s, "ti1"), r4, "No es mi área.")
+        repositorio.registrar_descargo(s, actor_de(s, "ti1"), r1, "No es mi área.")
     with pytest.raises(PermisoDenegado):
-        repositorio.revisiones_de_alerta(s, actor_de(s, "ti1"), r4)
+        repositorio.revisiones_de_alerta(s, actor_de(s, "ti1"), r1)
 
 
 def test_no_se_modifica_una_alerta_cerrada(sesion_sembrada):
@@ -96,6 +97,23 @@ def test_no_se_modifica_una_alerta_cerrada(sesion_sembrada):
         repositorio.escalar_alerta(s, oci1, r1, "Tarde.")
     with pytest.raises(ErrorValidacion):
         repositorio.registrar_descargo(s, inf1, r1, "Tarde.")
+
+
+def test_r4_anterior_queda_en_historial_y_no_suma_al_semaforo(sesion_sembrada):
+    s = sesion_sembrada
+    tes1 = actor_de(s, "tes1")
+    exp, _ = _alertas_estrella(s, tes1)
+    ahora = datetime.now(timezone.utc)
+    anterior = Alerta(expediente_id=exp["id"], regla="R4", clave="misma-persona",
+                      severidad="alta", estado="abierta", explicacion="Criterio anterior",
+                      datos={}, creada_en=ahora, actualizada_en=ahora)
+    s.add(anterior)
+    s.flush()
+    consulta, alertas = _alertas_estrella(s, tes1)
+    assert alertas["R4"]["vigente"] is False
+    assert consulta["alertas_altas"] == exp["alertas_altas"]
+    with pytest.raises(ErrorValidacion, match="criterio anterior"):
+        repositorio.cerrar_alerta(s, tes1, anterior.id, "Revisada")
 
 
 def test_el_implicado_no_cierra_ni_escala_su_propia_alerta(sesion_sembrada):

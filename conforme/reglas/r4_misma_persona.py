@@ -1,18 +1,18 @@
-"""R4: quien solicitó el bien o servicio es quien dio la conformidad."""
+"""R4: la persona que otorgó la conformidad también figura en el registro del pago."""
 from conforme.reglas.modelo import AlertaPropuesta, FotoExpediente
 
 
 def evaluar(foto: FotoExpediente) -> list[AlertaPropuesta]:
     conformidad = foto.conformidad
-    if conformidad is None or conformidad.conformante_id != foto.solicitante_id:
+    if conformidad is None:
         return []
     return [AlertaPropuesta(
         regla="R4",
-        clave="misma-persona",
+        clave=f"conformidad-y-pago-{pago.id}",
         explicacion=(
-            f"{conformidad.conformante} figura como solicitante del requerimiento y también "
-            "como quien dio la conformidad. No hay una segunda persona que confirme la recepción."
+            f"{conformidad.conformante} otorgó la conformidad y figura como responsable "
+            "del registro del pago. Revisar la asignación de funciones."
         ),
-        datos={"persona_id": conformidad.conformante_id},
+        datos={"persona_id": conformidad.conformante_id, "pago_id": pago.id},
         persona_implicada_id=conformidad.conformante_id,
-    )]
+    ) for pago in foto.pagos if pago.registrado_por == conformidad.conformante_id]

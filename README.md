@@ -1,6 +1,6 @@
 # Conforme
 
-Alerta temprana y trazabilidad para la conformidad de bienes y servicios. MVP de hackathon. **Todos los datos son sintéticos.**
+Expedientes, evidencias y alertas para la conformidad de servicios en la Universidad Nacional de Trujillo. **Todos los datos son sintéticos.**
 
 ## Puesta en marcha
 
@@ -26,7 +26,15 @@ Requiere Python 3.11, PostgreSQL y Node.js 20.19 o 22.12 en adelante.
 
 Abre [Conforme en el navegador](http://localhost:8501). FastAPI sirve la compilación de React y la API desde el mismo origen.
 
-Usuarios de demostración: `inf1` (área usuaria), `tes1` (tesorería), `oci1` (auditoría). La contraseña es el valor de `DEMO_PASSWORD`.
+Las cuentas de demostración son `inf1` (área usuaria), `tes1` (Tesorería) y `oci1` (OCI). La contraseña es el valor de `DEMO_PASSWORD`.
+
+Busca la orden `OS-2026-00300` para revisar el caso de mantenimiento de laboratorio. La conformidad de la demo tiene una evidencia faltante y una penalidad estimada por revisar. El devengado figura como consulta en el SIAF y Tesorería puede registrar la referencia de un pago efectuado.
+
+Si ya tienes una base cargada, ejecuta las migraciones para habilitar los campos nuevos. Carga el caso de la UNT con `scripts.sembrar` en una base de demostración vacía.
+
+Las alertas muestran su referencia cuando corresponde. El flujo sigue la [ruta de servicios de la UNT](https://din.unitru.edu.pe/ruta-de-procesos/).
+
+La separación de funciones y la trazabilidad sirven al control interno y a la prevención de riesgos de integridad. [Ley N.º 28716](https://cdn.www.gob.pe/uploads/document/file/2737802/Ley_N_28716.pdf.pdf) · [Modelo de Integridad Pública](https://www.gob.pe/institucion/pcm/normas-legales/7644478-002-2026-pcm-sip)
 
 ## Desarrollo y despliegue
 

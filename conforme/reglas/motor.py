@@ -89,6 +89,7 @@ def cargar_fotos(sesion: Session, expediente_ids: list[int] | None = None) -> li
             Expediente.plazo_dias, Expediente.fecha_entrega_real, Expediente.solicitante_id,
             Expediente.descripcion, Expediente.proveedor_id, Expediente.area_id,
             Expediente.fecha_requerimiento, Expediente.fecha_inicio_prestacion,
+            Expediente.conformidad_plazo_especial,
             Proveedor.razon_social,
         ).join(Proveedor, Proveedor.id == Expediente.proveedor_id)
         .order_by(Expediente.id),
@@ -105,6 +106,7 @@ def cargar_fotos(sesion: Session, expediente_ids: list[int] | None = None) -> li
             descripcion=x.descripcion, proveedor_id=x.proveedor_id, proveedor=x.razon_social,
             fecha_requerimiento=x.fecha_requerimiento,
             fecha_inicio_prestacion=x.fecha_inicio_prestacion,
+            conformidad_plazo_especial=x.conformidad_plazo_especial,
             previos_mismo_proveedor=previos.get(x.id, ()),
         )
         for x in expedientes

@@ -67,12 +67,12 @@ def test_penalidad_sugerida_coincide_con_la_regla_r2(engine, base_sembrada, monk
         assert cliente.post("/api/sesion", json={"username": "inf1", "password": PASSWORD_PRUEBA}).status_code == 200
         expediente = cliente.get("/api/expedientes", params={"texto": "EXP-2026-0300"}).json()[0]
         ruta = f"/api/expedientes/{expediente['id']}/penalidad"
-        # Caso estrella: 12 días de atraso, S/ 3,200.00 esperados, tope S/ 4,800.00 (alerta R2).
+        # Caso estrella: 12 días de atraso, S/ 2,880.00 estimados, tope S/ 4,320.00.
         atrasada = cliente.get(ruta, params={"entrega": "2026-09-29"}).json()
         assert atrasada["fecha_limite"] == "2026-09-17"
         assert atrasada["dias_atraso"] == 12
-        assert atrasada["penalidad_esperada"] == "3200.00"
-        assert atrasada["penalidad_tope"] == "4800.00"
+        assert atrasada["penalidad_esperada"] == "2880.00"
+        assert atrasada["penalidad_tope"] == "4320.00"
         assert atrasada["plazo_maximo_conformidad"] == 7
         a_tiempo = cliente.get(ruta, params={"entrega": "2026-09-17"}).json()
         assert a_tiempo["dias_atraso"] == 0 and a_tiempo["penalidad_esperada"] == "0.00"

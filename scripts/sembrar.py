@@ -96,6 +96,7 @@ def sembrar(sesion: Session, conjunto: dict, password: str) -> dict:
         refs["pago", p["expediente_codigo"]] = Pago(
             expediente_id=expedientes[p["expediente_codigo"]].id, fecha_pago=p["fecha_pago"],
             monto=p["monto"], penalidad_descontada=p["penalidad_descontada"],
+            referencia_siaf=p.get("referencia_siaf"),
             registrado_por=personas[p["registrado_por_dni"]].id,
             registrado_en=p["registrado_en"],
         )
@@ -164,14 +165,14 @@ def sembrar(sesion: Session, conjunto: dict, password: str) -> dict:
                 for e in conjunto["eventos"] if e["accion"] == "orden.emitida"}
 
     def ts_de(foto, propuesta):
-        if propuesta.regla == "R5":
+        if propuesta.regla in ("R4", "R5"):
             antes = ts_pago[propuesta.datos["pago_id"]]
             if foto.expediente_id in ts_conformidad:
                 antes = max(antes, ts_conformidad[foto.expediente_id])
             return antes + segundo
         if propuesta.regla in ("R6", "R7"):  # se detectan al emitir la orden
             return ts_orden[foto.expediente_id] + segundo
-        # R1–R4 y R8: tras la conformidad; sin conformidad, tras la orden.
+        # R1–R3 y R8: tras la conformidad; sin conformidad, tras la orden.
         return ts_conformidad.get(foto.expediente_id, ts_orden[foto.expediente_id]) + segundo
 
     eventos_alerta = motor.sincronizar(sesion, ts_de=ts_de, registrar=False)

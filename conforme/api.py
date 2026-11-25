@@ -140,13 +140,15 @@ class NuevoExpediente(BaseModel):
     descripcion: str
     proveedor_id: int
     numero_orden: str
+    proyecto_referencia: str | None = None
+    conformidad_plazo_especial: bool = False
     fecha_requerimiento: date
     fecha_orden: date
     fecha_inicio_prestacion: date | None = None
     plazo_dias: int
     monto: Decimal
     entregables: list[NuevoEntregable]
-    origen_entregables: Literal["manual", "csv"] = "manual"
+    origen_entregables: Literal["manual", "csv", "tdr"] = "manual"
 
 
 @router.post("/expedientes", status_code=201)
@@ -164,7 +166,9 @@ def detalle_expediente(expediente_id: int, request: Request, sesion: Sesion, act
         conformidad["aviso_url"] = sello.aviso_url_base(origen)
     return {
         "expediente": expediente,
-        "fecha_limite": normativa.fecha_limite(expediente["fecha_orden"], expediente["plazo_dias"]),
+        "fecha_limite": normativa.fecha_limite(expediente["fecha_orden"], expediente["plazo_dias"],
+                                              expediente["fecha_inicio_prestacion"]),
+        "plazo_maximo_conformidad": normativa.plazo_conformidad(expediente["conformidad_plazo_especial"]),
         "conformidad": conformidad,
         "entregables": repositorio.listar_entregables(sesion, actor, expediente_id),
         "alertas": repositorio.listar_alertas(sesion, actor, expediente_id=expediente_id),
@@ -179,14 +183,15 @@ def calcular_penalidad(expediente_id: int, entrega: date, sesion: Sesion, actor:
     """Orientación para el formulario: la misma cuenta que usa la regla R2."""
     expediente = expediente_visible(sesion, actor, expediente_id)
     monto, plazo = Decimal(expediente["monto"]), expediente["plazo_dias"]
-    atraso = normativa.dias_de_atraso(expediente["fecha_orden"], plazo, entrega)
+    limite = normativa.fecha_limite(expediente["fecha_orden"], plazo, expediente["fecha_inicio_prestacion"])
+    atraso = max(0, (entrega - limite).days)
     return {
-        "fecha_limite": normativa.fecha_limite(expediente["fecha_orden"], plazo),
+        "fecha_limite": limite,
         "dias_atraso": atraso,
         "penalidad_esperada": str(normativa.penalidad_esperada(monto, plazo, atraso)),
         "penalidad_tope": str(normativa.penalidad_tope(monto)),
         "tolerancia": str(normativa.PENALIDAD_TOLERANCIA),
-        "plazo_maximo_conformidad": normativa.CONFORMIDAD_PLAZO_MAXIMO_DIAS,
+        "plazo_maximo_conformidad": normativa.plazo_conformidad(expediente["conformidad_plazo_especial"]),
     }
 
 
@@ -258,13 +263,14 @@ def registrar_conformidad(expediente_id: int, sesion: Sesion, actor: UsuarioActu
         sesion, actor, expediente_id, **formulario.model_dump(exclude={"items"}), items=items,
     )
     alertas = repositorio.listar_alertas(sesion, actor, expediente_id=expediente_id)
-    return {"id": identificador, "alertas": len(alertas)}
+    return {"id": identificador, "alertas": sum(alerta["vigente"] for alerta in alertas)}
 
 
 class Pago(BaseModel):
     fecha_pago: date
     monto: Decimal
     penalidad_descontada: Decimal
+    referencia_siaf: str | None = None
 
 
 @router.post("/expedientes/{expediente_id}/pagos", status_code=201)

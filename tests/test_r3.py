@@ -35,3 +35,13 @@ def test_borde_justo_en_el_maximo_y_un_dia_despues():
 def test_borde_sin_conformidad_o_sin_entrega_no_alerta():
     assert r3.evaluar(foto(conformidad=None)) == []
     assert r3.evaluar(foto(fecha_entrega_real=None)) == []
+
+
+def test_plazo_especial_de_veinte_dias():
+    for dias, alertas in [(20, 0), (21, 1)]:
+        resultado = r3.evaluar(foto(
+            fecha_entrega_real=ENTREGA,
+            conformidad=conformidad(ENTREGA + timedelta(days=dias)),
+            conformidad_plazo_especial=True,
+        ))
+        assert len(resultado) == alertas

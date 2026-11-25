@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CircleAlert, CircleCheck } from "lucide-react";
-import { useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { api, useAccion, useDatos } from "./api";
 import { fecha, hoy, rutaExpediente, soles } from "./dominio";
 import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Volver } from "./ui";
@@ -8,8 +8,7 @@ import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Volver } from "./ui";
 const diasEntre = (desde, hasta) => Math.round((Date.parse(hasta) - Date.parse(desde)) / 86_400_000);
 const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
 
-/** Lo que las reglas R1–R4 dirían si se guardara el formulario tal como está. */
-function revisionPrevia({ actor, expediente, entregables, estado, entrega, fechaConformidad, penalidad, calculo }) {
+function revisionPrevia({ entregables, estado, entrega, fechaConformidad, penalidad, calculo }) {
   const avisos = [];
   const sinEvidencia = entregables.filter(({ id }) => estado[id].cumplido && !estado[id].archivos);
   if (sinEvidencia.length) {
@@ -17,7 +16,7 @@ function revisionPrevia({ actor, expediente, entregables, estado, entrega, fecha
   }
   if (calculo && calculo.dias_atraso > 0
       && Number(calculo.penalidad_esperada) - Number(penalidad || 0) > Number(calculo.tolerancia)) {
-    avisos.push(["R2", `Hay ${plural(calculo.dias_atraso, "día", "días")} de atraso y la penalidad esperada es ${soles(calculo.penalidad_esperada)}. Aplicada: ${soles(Number(penalidad || 0))}.`]);
+    avisos.push(["R2", `Hay ${plural(calculo.dias_atraso, "día de atraso", "días de atraso")}. Penalidad estimada si corresponde: ${soles(calculo.penalidad_esperada)}.`]);
   }
   if (calculo && entrega && fechaConformidad) {
     const transcurridos = diasEntre(entrega, fechaConformidad);
@@ -25,14 +24,10 @@ function revisionPrevia({ actor, expediente, entregables, estado, entrega, fecha
       avisos.push(["R3", `La conformidad se daría ${plural(transcurridos, "día", "días")} después de la entrega. El máximo considerado es ${plural(calculo.plazo_maximo_conformidad, "día", "días")}.`]);
     }
   }
-  if (actor.persona_id === expediente.solicitante_id) {
-    avisos.push(["R4", "Figuras como solicitante de este requerimiento. Si tú das la conformidad no habrá una segunda persona que confirme la recepción."]);
-  }
   return avisos;
 }
 
-function Formulario({ actor, expediente, entregables }) {
-  const [movil, setMovil] = useState(false);
+function Formulario({ expediente, entregables }) {
   const [entregaEditada, setEntrega] = useState(hoy());
   const [fechaConformidad, setFechaConformidad] = useState(hoy());
   const [penalidad, setPenalidad] = useState("0");
@@ -47,7 +42,7 @@ function Formulario({ actor, expediente, entregables }) {
   const cambiar = (id, cambio) => setEstado((actual) => ({ ...actual, [id]: { ...actual[id], ...cambio } }));
   const estadoConTotal = Object.fromEntries(Object.entries(estado).map(([id, e]) => [id, { ...e, archivos: e.archivos + e.fotos }]));
   const avisos = revisionPrevia({
-    actor, expediente, entregables, estado: estadoConTotal, entrega, fechaConformidad, penalidad, calculo,
+    entregables, estado: estadoConTotal, entrega, fechaConformidad, penalidad, calculo,
   });
   const fechaInvalida = entrega && fechaConformidad && fechaConformidad < entrega;
 
@@ -79,18 +74,17 @@ function Formulario({ actor, expediente, entregables }) {
   const esperada = calculo && Number(calculo.penalidad_esperada);
   return (
     <>
-      <label className="casilla"><input type="checkbox" checked={movil} onChange={(e) => setMovil(e.target.checked)} /> Vista móvil</label>
-      <form className={`formulario ${movil ? "formulario-movil" : ""}`} onSubmit={registrar}>
+      <form className="formulario" onSubmit={registrar}>
         <section className="panel formulario">
           <h2>1. Fechas y penalidad</h2>
           <div className="rejilla tres">
-            {expediente.fecha_entrega_real ? <p><strong>Entrega real</strong><br />{fecha(expediente.fecha_entrega_real)}</p>
-              : <Campo titulo="Fecha de entrega real" ayuda="Día en que el proveedor entregó el bien o terminó el servicio.">
+            {expediente.fecha_entrega_real ? <p><strong>Recepción del entregable</strong><br />{fecha(expediente.fecha_entrega_real)}</p>
+              : <Campo titulo="Fecha de recepción del entregable">
                 <input type="date" name="fecha_entrega_real" value={entregaEditada} onChange={(e) => setEntrega(e.target.value)} required /></Campo>}
             <Campo titulo="Fecha de la conformidad">
               <input type="date" name="fecha_conformidad" value={fechaConformidad}
                 onChange={(e) => setFechaConformidad(e.target.value)} required /></Campo>
-            <Campo titulo="Penalidad aplicada (S/)">
+            <Campo titulo="Penalidad aplicada (S/)" ayuda="Importe informado por Abastecimiento, si corresponde.">
               <input name="penalidad_aplicada" type="number" min="0" step="0.01" value={penalidad}
                 onChange={(e) => setPenalidad(e.target.value)} required /></Campo>
           </div>
@@ -98,9 +92,7 @@ function Formulario({ actor, expediente, entregables }) {
           {calculo && (calculo.dias_atraso > 0 ? (
             <div className="calculo">
               <p>Fecha límite {fecha(calculo.fecha_limite)}. Entrega con <strong>{plural(calculo.dias_atraso, "día", "días")} de atraso</strong>:
-                penalidad esperada <strong>{soles(esperada)}</strong> (tope {soles(calculo.penalidad_tope)}).</p>
-              {Number(penalidad || 0) !== esperada && <button type="button" onClick={() => setPenalidad(calculo.penalidad_esperada)}>
-                Usar {soles(esperada)}</button>}
+                penalidad estimada <strong>{soles(esperada)}</strong> si el atraso es imputable al proveedor.</p>
             </div>
           ) : <p className="secundario">Entrega dentro del plazo (fecha límite {fecha(calculo.fecha_limite)}). No corresponde penalidad.</p>)}
         </section>
@@ -119,7 +111,7 @@ function Formulario({ actor, expediente, entregables }) {
                   <div className="rejilla dos">
                     <Campo titulo="Evidencia"><input type="file" name={`archivo-${item.id}`} accept="image/jpeg,image/png,application/pdf" multiple
                       onChange={(e) => cambiar(item.id, { archivos: e.target.files.length })} /></Campo>
-                    <label className={movil ? "campo" : "campo captura"}>
+                    <label className="campo captura">
                       <span>Tomar una foto</span><input type="file" name={`foto-${item.id}`} accept="image/*" capture="environment"
                         onChange={(e) => cambiar(item.id, { fotos: e.target.files.length })} />
                     </label>
@@ -139,9 +131,9 @@ function Formulario({ actor, expediente, entregables }) {
         <section className={`panel revision ${avisos.length ? "revision-avisos" : "revision-ok"}`} aria-live="polite">
           <h2>3. Antes de guardar</h2>
           {avisos.length ? <>
-            <p>Con estos datos se {avisos.length === 1 ? "generará 1 alerta" : `generarán ${avisos.length} alertas`}. Puedes corregirlo o guardar igual.</p>
+            <p>Alertas previstas ({avisos.length})</p>
             <ul>{avisos.map(([regla, texto]) => <li key={regla}><strong>{regla}</strong> · {texto}</li>)}</ul>
-          </> : <p><CircleCheck size={16} /> Con estos datos no se espera ninguna alerta.</p>}
+          </> : <p><CircleCheck size={16} /> Sin alertas previstas.</p>}
         </section>
 
         <EstadoAccion accion={accion} />
@@ -152,7 +144,7 @@ function Formulario({ actor, expediente, entregables }) {
   );
 }
 
-export function Conformidad({ actor }) {
+export function Conformidad() {
   const { id } = useParams();
   const recurso = useDatos(`/expedientes/${id}`);
   const expediente = recurso.datos?.expediente;
@@ -165,8 +157,10 @@ export function Conformidad({ actor }) {
         <p className="secundario">{expediente.proveedor} · {soles(expediente.monto)} · Plazo de {expediente.plazo_dias} días
           · Fecha límite {fecha(recurso.datos.fecha_limite)}</p>
         {expediente.tiene_conformidad ? <Aviso>Este expediente ya tiene una conformidad registrada.</Aviso>
-          : !recurso.datos.entregables.length ? <Aviso tipo="advertencia">Este expediente no tiene entregables.</Aviso>
-          : <Formulario key={id} actor={actor} expediente={expediente} entregables={recurso.datos.entregables} />}
+          : !recurso.datos.entregables.length ? <Aviso tipo="advertencia">
+            Faltan los entregables del expediente. <Link to={`${rutaExpediente(id)}/tdr`}>Revisar TDR</Link>
+          </Aviso>
+          : <Formulario key={id} expediente={expediente} entregables={recurso.datos.entregables} />}
       </> : <Carga recurso={recurso} />}
     </>
   );

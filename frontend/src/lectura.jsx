@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Download, Plus, Sparkles, Trash2 } from "lucide-react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Download, FileText, Plus, Trash2 } from "lucide-react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { api, useAccion, useDatos } from "./api";
 import { capitalizar, fechaHora, rutaExpediente } from "./dominio";
 import { Aviso, AvisoNavegacion, Campo, Carga, Encabezado, EstadoAccion, Indicador, Volver } from "./ui";
@@ -42,7 +42,7 @@ function Propuesta({ pendiente, expediente, recargar }) {
       <p className="secundario">Documento «{pendiente.archivo_nombre}» · {fechaHora(pendiente.creado_en)}</p>
       {pendiente.origen === "respaldo"
         ? <Aviso tipo="advertencia"><strong>Resultado de respaldo.</strong> Se muestra un ejemplo guardado. {pendiente.aviso}</Aviso>
-        : <Aviso>El modelo generó esta propuesta. Revisa cada fila.</Aviso>}
+        : <Aviso>Revisa los entregables propuestos antes de aprobarlos.</Aviso>}
       {resultado.objeto && <div className="panel ficha">
         <p><strong>Objeto del documento</strong> · {resultado.objeto}</p>
         <p><strong>Objeto del expediente</strong> · {expediente.descripcion}</p>
@@ -107,27 +107,27 @@ function LecturasDelExpediente({ id }) {
 
   return (
     <>
-      <div className="panel ficha">
+      <div className="panel ficha contexto-formulario">
         <Link to={rutaExpediente(id)}>{expediente.codigo} · {capitalizar(expediente.tipo)} · Plazo de {expediente.plazo_dias} días</Link>
         <p>{expediente.descripcion}</p>
         <small>Entregables existentes: {entregables.map((e) => `${e.numero}. ${e.descripcion}`).join("; ") || "ninguno"}.</small>
       </div>
-      <form className="panel formulario" onSubmit={leer}>
+      {expediente.tiene_conformidad ? <Aviso>La conformidad ya está registrada.</Aviso> : <form className="panel formulario" onSubmit={leer}>
         <div className="fila-titulo">
-          <h2>Subir documento</h2>
+          <h2>Cargar TDR</h2>
           {hay_ejemplo && <a className="boton" href="/api/ia/ejemplo"><Download size={16} /> Descargar PDF de ejemplo</a>}
         </div>
         {pendiente && <Aviso>Hay una propuesta pendiente. Revísala antes de leer otro documento.</Aviso>}
-        <Campo titulo="Términos de referencia (PDF)">
+        <Campo titulo="Términos de referencia" ayuda="Archivo PDF con texto seleccionable.">
           <input type="file" name="archivo" accept=".pdf,application/pdf" required disabled={accion.pendiente || Boolean(pendiente)}
             onChange={(e) => setArchivo(e.target.files[0] ?? null)} />
         </Campo>
         <EstadoAccion accion={accion} />
         <div><button className="primario" disabled={!archivo || Boolean(pendiente) || accion.pendiente}>
-          <Sparkles size={17} />{accion.pendiente ? "Leyendo el documento…" : "Leer documento"}</button></div>
-      </form>
+          <FileText size={17} />{accion.pendiente ? "Leyendo TDR…" : "Extraer entregables"}</button></div>
+      </form>}
       {rechazada && <Aviso tipo="exito">Propuesta rechazada. No se añadió ningún entregable.</Aviso>}
-      {pendiente && <Propuesta key={pendiente.id} pendiente={pendiente} expediente={expediente} recargar={() => {
+      {pendiente && !expediente.tiene_conformidad && <Propuesta key={pendiente.id} pendiente={pendiente} expediente={expediente} recargar={() => {
         setRechazada(true);
         recurso.recargar();
       }} />}
@@ -141,14 +141,25 @@ function LecturasDelExpediente({ id }) {
   );
 }
 
+export function RevisarTdr() {
+  const { id } = useParams();
+  return <>
+    <Encabezado titulo="Términos de referencia" descripcion="La lectura asistida propone entregables para revisión y aprobación.">
+      <Volver to={rutaExpediente(id)}>Expediente</Volver>
+    </Encabezado>
+    <AvisoNavegacion />
+    <LecturasDelExpediente key={id} id={id} />
+  </>;
+}
+
 export function LecturaIA() {
   const recurso = useDatos("/expedientes");
   const [params, setParams] = useSearchParams();
-  const elegibles = recurso.datos?.filter((e) => !e.tiene_conformidad);
+  const elegibles = recurso.datos?.filter((e) => !e.tiene_conformidad && (e.tipo === "servicio" || String(e.id) === params.get("expediente")));
   const elegido = elegibles?.find((e) => String(e.id) === params.get("expediente")) ?? elegibles?.[0];
   return (
     <>
-      <Encabezado titulo="Lectura con IA" descripcion="Sube los términos de referencia (PDF con texto, no escaneado). La IA propone los entregables y tú decides cuáles añadir: nada se guarda sin tu aprobación.">
+      <Encabezado titulo="Términos de referencia" descripcion="Selecciona un expediente para revisar sus entregables.">
         <Volver to={elegido ? rutaExpediente(elegido.id) : "/expedientes"}>{elegido ? "Volver al expediente" : "Expedientes"}</Volver>
       </Encabezado>
       <AvisoNavegacion />
