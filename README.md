@@ -14,7 +14,9 @@ Prototipo para el **Desafío 2: Integridad institucional y Compliance** de la Ha
 | `tes1` | Tesorería | **Expedientes** y **Alertas**. Revisa el sustento y registra la referencia de un pago efectuado fuera de Conforme. |
 | `oci1` | Órgano de Control Institucional (OCI) | **Expedientes**, **Alertas** y **Bitácora**. Consulta evidencias e historial y verifica la integridad de los registros. |
 
-Las cuentas usan la contraseña definida en `DEMO_PASSWORD` al sembrar la base. **Verificar sello** también está disponible sin iniciar sesión, mediante el código o el QR del expediente.
+En la demo desplegada, las tres cuentas usan la contraseña `qm716zktiuypev`. En una instalación local, usan la contraseña definida en `DEMO_PASSWORD` al sembrar la base.
+
+**Verificar sello** también está disponible sin iniciar sesión, mediante el código o el QR del expediente.
 
 ## Puesta en marcha
 
