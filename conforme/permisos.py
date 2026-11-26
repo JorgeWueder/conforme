@@ -3,7 +3,9 @@ from dataclasses import dataclass
 
 from sqlalchemy import false, true
 
-from conforme.modelos import ROL_AREA_USUARIA, ROL_AUDITOR, ROL_TESORERIA, Expediente
+from conforme.modelos import (
+    ROL_ABASTECIMIENTO, ROL_AREA_USUARIA, ROL_AUDITOR, ROL_TESORERIA, Expediente,
+)
 
 
 class PermisoDenegado(Exception):
@@ -22,7 +24,7 @@ class Actor:
 
 def filtro_expedientes(actor: Actor):
     """Condición SQL con los expedientes que el actor puede ver."""
-    if actor.rol in (ROL_TESORERIA, ROL_AUDITOR):
+    if actor.rol in (ROL_TESORERIA, ROL_AUDITOR, ROL_ABASTECIMIENTO):
         return true()
     if actor.rol == ROL_AREA_USUARIA:
         return Expediente.area_id == actor.area_id

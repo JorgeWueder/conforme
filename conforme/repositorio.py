@@ -4,6 +4,7 @@ Toda función recibe el `actor` y aplica su alcance en la consulta. Las páginas
 no usan SQLAlchemy directamente.
 """
 import hashlib
+from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -16,7 +17,7 @@ from conforme.errores import ErrorValidacion
 from conforme.ia.extractor import PropuestaIA
 from conforme.modelos import (
     ESTADO_ABIERTA, ESTADO_CERRADA, ESTADO_CON_DESCARGO, ESTADO_ESCALADA,
-    ROL_AREA_USUARIA, ROL_AUDITOR, ROL_TESORERIA,
+    ROL_ABASTECIMIENTO, ROL_AREA_USUARIA, ROL_AUDITOR, ROL_TESORERIA,
     Alerta, AlertaRevision, Area, Bitacora, Conformidad, ConformidadEntregable,
     Entregable, Evidencia, Expediente, ExtraccionIA, Pago, Persona, Proveedor,
 )
@@ -34,6 +35,10 @@ _NOMBRE_PERSONA = _nombre()
 _ALERTA_VIGENTE = or_(Alerta.regla != "R4", Alerta.clave != R4_CLAVE_ANTERIOR)
 _ENTREGA_OBSERVADA = "entregable.observado"
 _ENTREGA_SUBSANADA = "entregable.subsanado"
+_OBSERVACION_COMUNICADA = "observacion.comunicada"
+_CONFORMIDAD_REVISADA = "conformidad.revisada"
+_CONFORMIDAD_DEVUELTA = "conformidad.devuelta"
+PLAZO_SUBSANACION_MAXIMO_DIAS = 30
 
 
 def _alertas_sin_cerrar(severidad: str):
@@ -65,6 +70,22 @@ def _consulta_expedientes(actor: Actor):
         .correlate(Expediente)
         .scalar_subquery()
     )
+    sin_comunicar = (
+        select(func.count().filter(Bitacora.accion == _ENTREGA_OBSERVADA)
+               - func.count().filter(Bitacora.accion == _OBSERVACION_COMUNICADA))
+        .where(Bitacora.expediente_id == Expediente.id,
+               Bitacora.accion.in_((_ENTREGA_OBSERVADA, _OBSERVACION_COMUNICADA)))
+        .correlate(Expediente)
+        .scalar_subquery()
+    )
+    revision_dec = (
+        select(Bitacora.accion)
+        .where(Bitacora.expediente_id == Expediente.id,
+               Bitacora.accion.in_((_CONFORMIDAD_REVISADA, _CONFORMIDAD_DEVUELTA)))
+        .order_by(Bitacora.id.desc()).limit(1)
+        .correlate(Expediente)
+        .scalar_subquery()
+    )
     return (
         select(
             Expediente.id,
@@ -89,6 +110,8 @@ def _consulta_expedientes(actor: Actor):
             exists().where(Conformidad.expediente_id == Expediente.id).label("tiene_conformidad"),
             exists().where(Pago.expediente_id == Expediente.id).label("tiene_pago"),
             observaciones_pendientes.label("observaciones_pendientes"),
+            sin_comunicar.label("observaciones_sin_comunicar"),
+            revision_dec.label("revision_dec"),
             _alertas_sin_cerrar(SEVERIDAD_ALTA).label("alertas_altas"),
             _alertas_sin_cerrar(SEVERIDAD_MEDIA).label("alertas_medias"),
         )
@@ -314,6 +337,100 @@ def registrar_observacion_de_entrega(
     )
 
 
+def indicadores(sesion: Session, actor: Actor) -> dict:
+    """Cifras agregadas de lo que el actor puede ver (mismo alcance que las listas)."""
+    expedientes = listar_expedientes(sesion, actor)
+    alertas = [a for a in listar_alertas(sesion, actor) if a["regla"] != "R4" or a["clave"] != R4_CLAVE_ANTERIOR]
+    por = lambda filas, campo: dict(sorted(Counter(f[campo] for f in filas).items()))
+    con_conformidad = [x for x in expedientes if x["tiene_conformidad"]]
+    return {
+        "expedientes": len(expedientes),
+        "por_semaforo": por(expedientes, "semaforo"),
+        "con_conformidad": len(con_conformidad),
+        "sin_conformidad": len(expedientes) - len(con_conformidad),
+        "con_observaciones_pendientes": sum(1 for x in expedientes if x["observaciones_pendientes"] > 0),
+        "observaciones_sin_comunicar": sum(max(x["observaciones_sin_comunicar"], 0) for x in expedientes),
+        "revision_pendiente": sum(1 for x in con_conformidad if x["revision_dec"] is None),
+        "listos_para_derivar": sum(1 for x in expedientes if x["revision_dec"] == _CONFORMIDAD_REVISADA),
+        "devueltos": sum(1 for x in expedientes if x["revision_dec"] == _CONFORMIDAD_DEVUELTA),
+        "por_pagar": sum(1 for x in con_conformidad if not x["tiene_pago"]),
+        "alertas": len(alertas),
+        "alertas_por_estado": por(alertas, "estado"),
+        "alertas_por_regla": por(alertas, "regla"),
+        "alertas_por_severidad": por(alertas, "severidad"),
+    }
+
+
+def comunicar_observacion(
+    sesion: Session, actor: Actor, expediente_id: int, *, entregable_id: int,
+    plazo_dias: int, canal: str, referencia: str = "",
+) -> None:
+    """Abastecimiento deja constancia de que la observación se comunicó al proveedor.
+
+    La comunicación es simulada: el sistema registra canal, referencia y plazo, no la envía.
+    """
+    exigir_rol(actor, ROL_ABASTECIMIENTO)
+    _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
+    if sesion.scalar(select(Conformidad.id).where(Conformidad.expediente_id == expediente_id)):
+        raise ErrorValidacion("El expediente ya tiene conformidad: no se comunican más observaciones.")
+    observadas = _observaciones_de_entrega(sesion, expediente_id)
+    if entregable_id not in observadas:
+        raise ErrorValidacion("El entregable no tiene una observación registrada.")
+    comunicadas = set(sesion.scalars(select(Bitacora.entidad_id).where(
+        Bitacora.expediente_id == expediente_id, Bitacora.accion == _OBSERVACION_COMUNICADA)))
+    if entregable_id in comunicadas:
+        raise ErrorValidacion("La observación de ese entregable ya fue comunicada.")
+    if not 1 <= plazo_dias <= PLAZO_SUBSANACION_MAXIMO_DIAS:
+        raise ErrorValidacion(f"El plazo debe estar entre 1 y {PLAZO_SUBSANACION_MAXIMO_DIAS} días calendario.")
+    canal = _texto_obligatorio(canal, "El canal de comunicación")
+    numero = sesion.scalar(select(Entregable.numero).where(Entregable.id == entregable_id))
+    fecha_limite = (datetime.now(timezone.utc) + timedelta(days=plazo_dias)).date()
+    bitacora.registrar(
+        sesion, actor_id=actor.persona_id, accion=_OBSERVACION_COMUNICADA,
+        entidad="entregable", entidad_id=entregable_id, expediente_id=expediente_id,
+        detalle={
+            "observacion_id": observadas[entregable_id], "entregable_id": entregable_id,
+            "numero": numero, "canal": canal, "referencia": (referencia or "").strip() or None,
+            "plazo_dias": plazo_dias, "fecha_limite": fecha_limite,
+            "resumen": f"Comunicada por {canal}; plazo de {plazo_dias} días (hasta el {fecha_limite:%d/%m/%Y}).",
+        },
+    )
+
+
+def revisar_conformidad(
+    sesion: Session, actor: Actor, expediente_id: int, *, favorable: bool,
+    motivo: str, referencia_derivacion: str = "",
+) -> None:
+    """Abastecimiento revisa la conformidad emitida: la deriva o la devuelve con motivo.
+
+    La derivación es una referencia simulada; el pago y el devengado siguen fuera de Conforme.
+    """
+    exigir_rol(actor, ROL_ABASTECIMIENTO)
+    _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
+    if not sesion.scalar(select(Conformidad.id).where(Conformidad.expediente_id == expediente_id)):
+        raise ErrorValidacion("El expediente aún no tiene conformidad que revisar.")
+    if sesion.scalar(select(Bitacora.id).where(
+        Bitacora.expediente_id == expediente_id,
+        Bitacora.accion.in_((_CONFORMIDAD_REVISADA, _CONFORMIDAD_DEVUELTA)),
+    ).limit(1)):
+        raise ErrorValidacion("La conformidad de este expediente ya fue revisada.")
+    motivo = _texto_obligatorio(motivo, "El motivo")
+    referencia = (referencia_derivacion or "").strip()
+    if favorable and not referencia:
+        raise ErrorValidacion("Indica la referencia de derivación (simulada) del expediente.")
+    bitacora.registrar(
+        sesion, actor_id=actor.persona_id,
+        accion=_CONFORMIDAD_REVISADA if favorable else _CONFORMIDAD_DEVUELTA,
+        entidad="conformidad", entidad_id=expediente_id, expediente_id=expediente_id,
+        detalle={
+            "favorable": favorable, "motivo": motivo,
+            "referencia_derivacion": referencia if favorable else None,
+            "resumen": (f"Lista para derivar ({referencia}). {motivo}" if favorable
+                        else f"Devuelta al área usuaria: {motivo}"),
+        },
+    )
+
+
 def listar_entregables(sesion: Session, actor: Actor, expediente_id: int) -> list[dict]:
     """Entregables con su estado en la conformidad y sus evidencias (sin el contenido)."""
     _expediente_en_alcance(sesion, actor, expediente_id)
@@ -416,6 +533,17 @@ def registrar_conformidad(
         for e in entregables
     }
     observados = _observaciones_de_entrega(sesion, expediente_id)
+    comunicadas = set(sesion.scalars(select(Bitacora.entidad_id).where(
+        Bitacora.expediente_id == expediente_id, Bitacora.accion == _OBSERVACION_COMUNICADA)))
+    for e in entregables:
+        if e.id in observados and e.id not in comunicadas:
+            raise ErrorValidacion(
+                f"El entregable {e.numero} tiene una observación sin comunicar al proveedor. "
+                "Abastecimiento debe registrar la comunicación antes de la conformidad.")
+        if e.id in observados and not por_id[e.id]["cumplido"]:
+            raise ErrorValidacion(
+                f"El entregable {e.numero} tiene una observación activa. "
+                "Verifica la subsanación o deja el expediente sin conformidad.")
     subsanados = {e.id for e in entregables if e.id in observados and por_id[e.id]["cumplido"]}
     for e in entregables:
         if e.id in subsanados and (not archivos[e.id] or not (por_id[e.id].get("observacion") or "").strip()):

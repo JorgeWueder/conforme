@@ -73,4 +73,4 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-El historial técnico y el estado del proyecto están en [PLAN.md](PLAN.md).
+El análisis, las brechas y las decisiones del proyecto están en la base de conocimiento (carpeta `BASE DE CONOCIMIENTO`, fuera del repositorio). El historial técnico está en `git log`.

@@ -2,16 +2,17 @@
 
 MVP de hackathon universitaria (entrega 25 nov 2026). Herramienta web de alerta temprana y trazabilidad para la conformidad de bienes y servicios en una entidad pública. **Alerta, no bloquea pagos ni determina responsabilidades.** Datos 100 % sintéticos.
 
-Lee `PLAN.md` primero: tiene el plan aprobado, el estado por fase y lo pendiente.
+La base de conocimiento (`C:\Users\USERJSSV\Downloads\BASE DE CONOCIMIENTO-20261126T170903Z-1-001\BASE DE CONOCIMIENTO`) es la fuente de verdad del sistema: léela primero (`README.md`, luego `04-definicion-estrategica/`: brechas, diseño funcional, backlog y decisiones). `PLAN.md` se eliminó; su historial está en git.
 
 ## Stack (no cambiar sin preguntar)
-React 19 con Vite 7 (`frontend/`, Node 20.19+ o 22.12+), API FastAPI en Python 3.11, PostgreSQL con SQLAlchemy 2 y psycopg 3, migraciones SQL numeradas con ejecutor propio, Faker y pytest. Uvicorn sirve la compilación de React (`frontend/dist`) y la API (`/api`) desde el mismo origen. Base de datos en Neon (ramas dev, test y demo). Despliegue previsto: Render con el `Dockerfile` del repositorio (ver «Plan de redespliegue» en `PLAN.md`); Streamlit Cloud ya no sirve.
+React 19 con Vite 7 (`frontend/`, Node 20.19+ o 22.12+), API FastAPI en Python 3.11, PostgreSQL con SQLAlchemy 2 y psycopg 3, migraciones SQL numeradas con ejecutor propio, Faker y pytest. Uvicorn sirve la compilación de React (`frontend/dist`) y la API (`/api`) desde el mismo origen. Base de datos en Neon (ramas dev, test y demo). Despliegue previsto: Render con el `Dockerfile` del repositorio; Streamlit Cloud ya no sirve.
 
 ## Comandos (PowerShell, desde la raíz)
 ```
 .\.venv\Scripts\python.exe -m scripts.migrar
 .\.venv\Scripts\python.exe -m scripts.sembrar            # --reiniciar borra y recarga
 .\.venv\Scripts\python.exe -m scripts.medir_deteccion    # alertas vs. anomalías sembradas
+.\.venv\Scripts\python.exe -m scripts.caso_limpieza     # caso de demo OS-SIM-2026-L01 (tras sembrar)
 .\.venv\Scripts\python.exe -m pytest -q
 npm --prefix frontend ci
 npm --prefix frontend run build
@@ -32,10 +33,10 @@ Configuración en `.env` (ver `.env.example`). `DATABASE_URL_TEST` debe ser una 
 - `migraciones/NNN_*.sql`: el esquema real. `conforme/modelos.py` lo refleja.
 
 ## Reglas de trabajo
-- Una fase por sesión. Al terminar: pruebas, commit y actualizar `PLAN.md`.
+- Una fase por sesión. Al terminar: pruebas, commit y dejar constancia del estado y lo pendiente en el mensaje del commit.
 - Cambios pequeños y dirigidos; nada que no se haya pedido.
-- Lo normativo dudoso va como parámetro marcado "POR VERIFICAR" y se anota en `PLAN.md`; no se inventa.
+- Lo normativo dudoso va como parámetro marcado "POR VERIFICAR" y se anota en el registro de decisiones de la base de conocimiento (`06-REGISTRO-DECISIONES.md`); no se inventa.
 - Nunca afirmar que algo funciona sin haberlo ejecutado.
 - Código, dominio e interfaz en español. Sin secretos en el repositorio.
 - La tabla `anomalia_sembrada` no puede ser leída por nada dentro de `conforme/`.
-- Roles: `area_usuaria` (sus expedientes), `tesoreria` (ve todo, no edita conformidades), `auditor` (solo lectura + bitácora). Cierran o escalan alertas tesorería y auditor; nadie cierra una alerta donde figura implicado.
+- Roles: `area_usuaria` (sus expedientes), `abastecimiento` (DEC: ve todo, comunica observaciones y revisa la conformidad emitida; no conforma), `tesoreria` (ve todo, no edita conformidades), `auditor` (solo lectura + bitácora). Cierran o escalan alertas tesorería y auditor; nadie cierra una alerta donde figura implicado.

@@ -1,5 +1,4 @@
 """API HTTP de Conforme. Las operaciones de dominio pasan por el repositorio."""
-from base64 import b64encode
 from datetime import date
 from decimal import Decimal
 from secrets import token_urlsafe
@@ -13,7 +12,9 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from conforme import auth, config, db, entregables, evidencias, normativa, repositorio, sello
+from conforme import (
+    auth, bitacora, config, db, entregables, evidencias, normativa, reporte, repositorio, sello,
+)
 from conforme.errores import ErrorValidacion
 from conforme.ia import extractor
 from conforme.modelos import ROL_AREA_USUARIA
@@ -178,6 +179,21 @@ def detalle_expediente(expediente_id: int, request: Request, sesion: Sesion, act
     }
 
 
+@router.get("/indicadores")
+def indicadores(sesion: Sesion, actor: UsuarioActual):
+    return repositorio.indicadores(sesion, actor)
+
+
+@router.get("/expedientes/{expediente_id}/reporte")
+def reporte_expediente(expediente_id: int, request: Request, sesion: Sesion, actor: UsuarioActual):
+    datos = detalle_expediente(expediente_id, request, sesion, actor)
+    cadena = bitacora.verificar_cadena_cacheada(sesion)
+    pdf = reporte.generar_pdf(datos, actor=f"{actor.nombre} ({actor.username})",
+                              cadena_integra=cadena.resultado.integra, registros=cadena.resultado.total)
+    codigo = datos["expediente"]["codigo"]
+    return adjunto(pdf, "application/pdf", f"reporte-trazabilidad-{codigo}.pdf")
+
+
 @router.get("/expedientes/{expediente_id}/penalidad")
 def calcular_penalidad(expediente_id: int, entrega: date, sesion: Sesion, actor: UsuarioActual):
     """Orientación para el formulario: la misma cuenta que usa la regla R2."""
@@ -245,6 +261,35 @@ def registrar_observacion_de_entrega(
     expediente_id: int, datos: ObservacionEntrega, sesion: Sesion, actor: UsuarioActual,
 ):
     repositorio.registrar_observacion_de_entrega(sesion, actor, expediente_id, **datos.model_dump())
+    return Response(status_code=204)
+
+
+class ComunicacionObservacion(BaseModel):
+    entregable_id: int
+    plazo_dias: int
+    canal: str = Field(max_length=120)
+    referencia: str = Field(default="", max_length=120)
+
+
+@router.post("/expedientes/{expediente_id}/comunicaciones", status_code=204)
+def comunicar_observacion(
+    expediente_id: int, datos: ComunicacionObservacion, sesion: Sesion, actor: UsuarioActual,
+):
+    repositorio.comunicar_observacion(sesion, actor, expediente_id, **datos.model_dump())
+    return Response(status_code=204)
+
+
+class RevisionConformidad(BaseModel):
+    favorable: bool
+    motivo: str = Field(max_length=1000)
+    referencia_derivacion: str = Field(default="", max_length=120)
+
+
+@router.post("/expedientes/{expediente_id}/revision", status_code=204)
+def revisar_conformidad(
+    expediente_id: int, datos: RevisionConformidad, sesion: Sesion, actor: UsuarioActual,
+):
+    repositorio.revisar_conformidad(sesion, actor, expediente_id, **datos.model_dump())
     return Response(status_code=204)
 
 
@@ -333,10 +378,30 @@ def verificar_sello(codigo: str, sesion: Sesion, forzar: bool = False):
     resultado = repositorio.consultar_sello(sesion, codigo.strip(), forzar=forzar)
     if resultado is None:
         raise HTTPException(404, "No se encontró ninguna conformidad con ese código. Revisa que esté completo.")
+    return reducir_sello_publico(resultado)
+
+
+def reducir_sello_publico(resultado: dict) -> dict:
+    """La verificación sin sesión solo dice si el rastro está íntegro y qué cubre.
+
+    No expone personas, proveedor, importes, notas, descripciones ni miniaturas: eso se
+    consulta dentro de la sesión, con el alcance de cada rol."""
+    for campo in ("monto", "penalidad_aplicada", "conformante", "conformante_cargo",
+                  "proveedor", "observaciones", "descripcion"):
+        resultado[campo] = None
+    entregables = []
     for entregable in resultado["entregables"]:
-        for evidencia in entregable["evidencias"]:
-            if evidencia["miniatura"]:
-                evidencia["miniatura"] = b64encode(evidencia["miniatura"]).decode("ascii")
+        entregables.append({
+            "numero": entregable["numero"], "cumplido": entregable["cumplido"],
+            "descripcion": f"Entregable {entregable['numero']}", "observacion": "",
+            "evidencias": [
+                {"nombre_archivo": f"Evidencia {i}", "mime": "", "sha256": evidencia["sha256"],
+                 "coincide": evidencia["coincide"], "miniatura": None}
+                for i, evidencia in enumerate(entregable["evidencias"], start=1)
+            ],
+        })
+    resultado["entregables"] = entregables
+    resultado["reducido"] = True
     return resultado
 
 

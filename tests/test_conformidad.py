@@ -15,10 +15,10 @@ from tests.conftest import actor_de
 PDF = b"%PDF-1.4 acta sintetica"
 
 
-def _pendiente(sesion, actor):
-    """Un expediente del alcance del actor sin conformidad ni pagos."""
-    return next(x for x in repositorio.listar_expedientes(sesion, actor)
-                if not x["tiene_conformidad"] and x["alertas_altas"] == 0)
+def _pendiente(sesion, actor, saltar=0):
+    """Un expediente del alcance del actor sin conformidad ni pagos (el n.º `saltar` de la lista)."""
+    return [x for x in repositorio.listar_expedientes(sesion, actor)
+            if not x["tiene_conformidad"] and x["alertas_altas"] == 0][saltar]
 
 
 def _items(entregables, sin_evidencia=()):
@@ -101,6 +101,14 @@ def test_entregable_observado_se_subsana_con_evidencia_y_queda_sellado(sesion_se
 
     items = _items(entregables, sin_evidencia={entregables[0]["numero"]})
     items[0]["observacion"] = "Se verificaron los ambientes declarados en el informe corregido."
+    with pytest.raises(ErrorValidacion, match="sin comunicar"):
+        _registrar(s, inf1, exp, items=items)
+    comunicacion = {"entregable_id": entregables[0]["id"], "plazo_dias": 3, "canal": "Correo (simulado)"}
+    with pytest.raises(PermisoDenegado):
+        repositorio.comunicar_observacion(s, inf1, exp["id"], **comunicacion)
+    repositorio.comunicar_observacion(s, actor_de(s, "dec1"), exp["id"], **comunicacion)
+    with pytest.raises(ErrorValidacion, match="ya fue comunicada"):
+        repositorio.comunicar_observacion(s, actor_de(s, "dec1"), exp["id"], **comunicacion)
     with pytest.raises(ErrorValidacion, match="está observado"):
         _registrar(s, inf1, exp, items=items)
     assert repositorio.obtener_conformidad(s, tes1, exp["id"]) is None
@@ -109,6 +117,10 @@ def test_entregable_observado_se_subsana_con_evidencia_y_queda_sellado(sesion_se
     _registrar(s, inf1, exp, items=items)
     eventos = repositorio.linea_de_tiempo(s, tes1, exp["id"])
     observacion = next(e for e in eventos if e["accion"] == "entregable.observado")
+    comunicada = next(e for e in eventos if e["accion"] == "observacion.comunicada")
+    assert observacion["id"] < comunicada["id"] < next(
+        e["id"] for e in eventos if e["accion"] == "entregable.subsanado")
+    assert comunicada["detalle"]["plazo_dias"] == 3
     subsanacion = next(e for e in eventos if e["accion"] == "entregable.subsanado")
     conformidad = next(e for e in eventos if e["accion"] == "conformidad.registrada")
     assert observacion["id"] < subsanacion["id"] < conformidad["id"]
@@ -277,3 +289,42 @@ def test_solo_area_usuaria_crea_expedientes(sesion_sembrada, username):
     actor = actor_de(s, username)
     with pytest.raises(PermisoDenegado):
         repositorio.crear_expediente(s, actor, **_datos_expediente(s, actor))
+
+
+def test_conformidad_con_observacion_activa_no_se_registra(sesion_sembrada):
+    s = sesion_sembrada
+    inf1, dec1 = actor_de(s, "inf1"), actor_de(s, "dec1")
+    exp = _pendiente(s, inf1, saltar=1)
+    entregables = repositorio.listar_entregables(s, inf1, exp["id"])
+    repositorio.registrar_observacion_de_entrega(
+        s, inf1, exp["id"], entregable_id=entregables[0]["id"], texto="Falta el sustento del ambiente B.")
+    repositorio.comunicar_observacion(
+        s, dec1, exp["id"], entregable_id=entregables[0]["id"], plazo_dias=3, canal="Correo (simulado)")
+    items = _items(entregables)
+    items[0]["cumplido"] = False
+    with pytest.raises(ErrorValidacion, match="observación activa"):
+        _registrar(s, inf1, exp, items=items)
+    assert repositorio.obtener_conformidad(s, inf1, exp["id"]) is None
+
+
+def test_abastecimiento_revisa_la_conformidad_emitida(sesion_sembrada):
+    s = sesion_sembrada
+    inf1, tes1, dec1 = actor_de(s, "inf1"), actor_de(s, "tes1"), actor_de(s, "dec1")
+    exp = _pendiente(s, inf1, saltar=2)
+    with pytest.raises(ErrorValidacion, match="aún no tiene conformidad"):
+        repositorio.revisar_conformidad(s, dec1, exp["id"], favorable=True, motivo="ok", referencia_derivacion="SIM-DER-1")
+    _registrar(s, inf1, exp)
+    for actor in (inf1, tes1):
+        with pytest.raises(PermisoDenegado):
+            repositorio.revisar_conformidad(s, actor, exp["id"], favorable=True, motivo="ok", referencia_derivacion="SIM-DER-1")
+    with pytest.raises(ErrorValidacion, match="referencia de derivación"):
+        repositorio.revisar_conformidad(s, dec1, exp["id"], favorable=True, motivo="Cronología coherente.")
+    with pytest.raises(ErrorValidacion, match="motivo"):
+        repositorio.revisar_conformidad(s, dec1, exp["id"], favorable=False, motivo=" ")
+    repositorio.revisar_conformidad(
+        s, dec1, exp["id"], favorable=True, motivo="Cronología coherente.", referencia_derivacion="SIM-DER-001")
+    assert repositorio.obtener_expediente(s, dec1, exp["id"])["revision_dec"] == "conformidad.revisada"
+    with pytest.raises(ErrorValidacion, match="ya fue revisada"):
+        repositorio.revisar_conformidad(s, dec1, exp["id"], favorable=False, motivo="Otra vez.")
+    acciones = [e["accion"] for e in repositorio.linea_de_tiempo(s, tes1, exp["id"])]
+    assert acciones.index("conformidad.registrada") < acciones.index("conformidad.revisada")

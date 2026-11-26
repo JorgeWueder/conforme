@@ -50,10 +50,14 @@ def test_sesion_alcance_y_sello_publico(engine, base_sembrada, monkeypatch):
         assert publico.status_code == 200
         assert publico.json()["integra"]
         assert "conformante_id" not in publico.json()
-        assert any(
-            evidencia["miniatura"]
+        assert publico.json()["reducido"]
+        for campo in ("conformante", "proveedor", "monto", "observaciones", "descripcion"):
+            assert publico.json()[campo] is None
+        assert not any(
+            evidencia["miniatura"] or "." in evidencia["nombre_archivo"]
             for item in publico.json()["entregables"] for evidencia in item["evidencias"]
         )
+        assert any(item["evidencias"] for item in publico.json()["entregables"])
         imagen = cliente.get(f"/api/expedientes/{expediente['id']}/sello")
         assert imagen.headers["content-type"] == "image/png"
         assert imagen.content.startswith(b"\x89PNG")
@@ -123,3 +127,29 @@ def test_conformidad_multipart_con_asignacion_de_evidencia(engine, base_sembrada
         descarga = cliente.get(f"/api/evidencias/{evidencia['id']}?descarga=true")
         assert descarga.content == pdf
         assert "attachment" in descarga.headers["content-disposition"]
+
+
+def test_reporte_pdf_respeta_el_alcance(engine, base_sembrada, monkeypatch):
+    monkeypatch.setattr(db, "_engine", engine)
+    with TestClient(app, headers={"X-Conforme": "1"}) as cliente, TestClient(app) as visitante:
+        cliente.post("/api/sesion", json={"username": "inf1", "password": PASSWORD_PRUEBA})
+        propio = cliente.get("/api/expedientes", params={"texto": "EXP-2026-0300"}).json()[0]
+        respuesta = cliente.get(f"/api/expedientes/{propio['id']}/reporte")
+        assert respuesta.status_code == 200
+        assert respuesta.headers["content-type"] == "application/pdf"
+        assert respuesta.content.startswith(b"%PDF")
+        assert visitante.get(f"/api/expedientes/{propio['id']}/reporte").status_code == 401
+        ajeno = max(e["id"] for e in cliente.get("/api/expedientes").json()) + 1000
+        assert cliente.get(f"/api/expedientes/{ajeno}/reporte").status_code == 404
+
+
+def test_indicadores_por_alcance(engine, base_sembrada, monkeypatch):
+    monkeypatch.setattr(db, "_engine", engine)
+    with TestClient(app, headers={"X-Conforme": "1"}) as cliente:
+        cliente.post("/api/sesion", json={"username": "oci1", "password": PASSWORD_PRUEBA})
+        todo = cliente.get("/api/indicadores").json()
+        assert todo["expedientes"] == 300
+        assert sum(todo["por_semaforo"].values()) == 300
+        assert sum(todo["alertas_por_regla"].values()) == todo["alertas"]
+        cliente.post("/api/sesion", json={"username": "inf1", "password": PASSWORD_PRUEBA})
+        assert cliente.get("/api/indicadores").json()["expedientes"] < 300

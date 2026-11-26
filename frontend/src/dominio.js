@@ -2,6 +2,7 @@ export const ROLES = {
   area_usuaria: "Área usuaria",
   tesoreria: "Tesorería",
   auditor: "Órgano de Control Institucional",
+  abastecimiento: "Abastecimiento (DEC)",
 };
 export const ESTADOS = {
   abierta: "Abierta",
@@ -17,6 +18,9 @@ export const ACCIONES = {
   "orden.emitida": "Orden emitida",
   "entregable.observado": "Observación registrada",
   "entregable.subsanado": "Subsanación verificada",
+  "observacion.comunicada": "Observación comunicada al proveedor",
+  "conformidad.revisada": "Conformidad revisada por Abastecimiento",
+  "conformidad.devuelta": "Conformidad devuelta por Abastecimiento",
   "conformidad.registrada": "Conformidad registrada",
   "evidencia.adjuntada": "Evidencia adjuntada",
   "pago.registrado": "Pago registrado",
@@ -74,6 +78,10 @@ export function estadoEntregable(item) {
 export function observacionesDeEntrega(eventos) {
   const subsanaciones = new Map(eventos.filter((e) => e.accion === "entregable.subsanado")
     .map((e) => [e.detalle.observacion_id, e]));
+  const comunicaciones = new Map(eventos.filter((e) => e.accion === "observacion.comunicada")
+    .map((e) => [e.detalle.observacion_id, e]));
   return new Map(eventos.filter((e) => e.accion === "entregable.observado")
-    .map((e) => [e.detalle.entregable_id, { ...e, subsanacion: subsanaciones.get(e.id) }]));
+    .map((e) => [e.detalle.entregable_id, {
+      ...e, subsanacion: subsanaciones.get(e.id), comunicacion: comunicaciones.get(e.id),
+    }]));
 }

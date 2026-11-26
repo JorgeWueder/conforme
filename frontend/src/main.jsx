@@ -4,7 +4,7 @@ import {
   BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation,
 } from "react-router";
 import {
-  Bell, ClipboardCheck, Database, Eye, EyeOff, FileText, FlaskConical,
+  BarChart3, Bell, ClipboardCheck, Database, Eye, EyeOff, FileText, FlaskConical,
   FolderOpen, LogOut, Plus, QrCode, ShieldCheck,
 } from "lucide-react";
 import { api, useAccion, useDatos } from "./api";
@@ -16,6 +16,7 @@ import { Conformidad } from "./conformidad";
 import { Alertas, Bitacora, meToca } from "./auditoria";
 import { LecturaIA, RevisarTdr } from "./lectura";
 import { Verificar } from "./verificar";
+import { Indicadores } from "./indicadores";
 import fotoCampus from "./assets/unt-ciudad-universitaria.webp";
 import fotoPatio from "./assets/unt-patio-historico.webp";
 import "./estilos.css";
@@ -24,6 +25,7 @@ const ROLES_DEMO = [
   { usuario: "inf1", rol: "Área usuaria" },
   { usuario: "tes1", rol: "Tesorería" },
   { usuario: "oci1", rol: "OCI" },
+  { usuario: "dec1", rol: "Abastecimiento" },
 ];
 
 function Marca({ publica = false }) {
@@ -62,6 +64,7 @@ function Marco({ actor, cerrarSesion }) {
       ] : []),
     ]],
     ["Control", [
+      ["/indicadores", "Indicadores", BarChart3],
       ["/alertas", "Alertas", Bell],
       ...(actor?.rol === "auditor" ? [["/bitacora", "Bitácora", Database]] : []),
       ["/verificar", "Verificar sello", QrCode],
@@ -295,6 +298,7 @@ function App() {
           <Route path="expedientes" element={<Expedientes actor={actor} />} />
           <Route path="expedientes/:id" element={<Detalle actor={actor} />} />
           <Route path="alertas" element={<Alertas actor={actor} />} />
+          <Route path="indicadores" element={<Indicadores />} />
           <Route element={<Protegida actor={actor} rol="area_usuaria" />}>
             <Route path="nuevo-expediente" element={<NuevoExpediente />} />
             <Route path="lectura-ia" element={<LecturaIA />} />

@@ -52,6 +52,13 @@ def sembrar(sesion: Session, conjunto: dict, password: str) -> dict:
         for u in conjunto["usuarios"]
     )
 
+    # Abastecimiento (DEC): cuenta aparte para no alterar lo que genera la semilla.
+    dec = Persona(dni=f"{generador.PREFIJO_DNI}900001", nombres="Marisol", apellidos="Quispe Valverde",
+                  cargo="Especialista de Abastecimiento (DEC)", area_id=areas["LOG"].id)
+    sesion.add(dec)
+    sesion.flush()
+    sesion.add(Usuario(persona_id=dec.id, username="dec1", password_hash=hash_demo, rol="abastecimiento"))
+
     proveedores = {p["ruc"]: Proveedor(**p) for p in conjunto["proveedores"]}
     sesion.add_all(proveedores.values())
     sesion.flush()
@@ -207,4 +214,4 @@ if __name__ == "__main__":
             sys.exit("La base ya tiene datos. Usa --reiniciar para borrarlos y recargar.")
         conteos = sembrar(s, generador.generar(), password)
     print("Sembrado: " + ", ".join(f"{n} {nombre}" for nombre, n in conteos.items()) + ".")
-    print("Usuarios de demostración: inf1 (área usuaria), tes1 (tesorería), oci1 (auditor).")
+    print("Usuarios de demostración: inf1 (área usuaria), tes1 (tesorería), oci1 (auditor), dec1 (abastecimiento).")

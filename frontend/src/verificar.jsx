@@ -110,7 +110,7 @@ function Consulta({ codigo }) {
               <h2>{r.expediente}</h2>
               <Indicador tono="neutro">{capitalizar(r.tipo)}</Indicador>
             </div>
-            <p className="constancia-descripcion">{r.descripcion}</p>
+            {r.descripcion && <p className="constancia-descripcion">{r.descripcion}</p>}
           </div>
           <div className="constancia-sello-meta">
             <small>Universidad Nacional de Trujillo</small>
@@ -119,25 +119,25 @@ function Consulta({ codigo }) {
         </header>
 
         <dl className="constancia-cifras">
-          <div><dt>Monto contratado</dt><dd>{soles(r.monto)}</dd></div>
+          {!r.reducido && <div><dt>Monto contratado</dt><dd>{soles(r.monto)}</dd></div>}
           <div><dt>Entrega real</dt><dd>{fecha(r.fecha_entrega_real)}</dd></div>
           <div><dt>Fecha de conformidad</dt><dd>{fecha(r.fecha_conformidad)}</dd></div>
-          <div><dt>Penalidad aplicada</dt><dd>{soles(r.penalidad_aplicada)}</dd></div>
+          {!r.reducido && <div><dt>Penalidad aplicada</dt><dd>{soles(r.penalidad_aplicada)}</dd></div>}
         </dl>
 
         <dl className="constancia-banda constancia-partes">
-          <div>
+          {!r.reducido && <div>
             <dt>Conformidad otorgada por</dt>
             <dd><strong>{r.conformante}</strong><span>{r.conformante_cargo}</span></dd>
-          </div>
+          </div>}
           <div>
             <dt>Área usuaria (UNT)</dt>
             <dd><strong>{r.area}</strong></dd>
           </div>
-          <div>
+          {!r.reducido && <div>
             <dt>Proveedor</dt>
             <dd><strong>{r.proveedor}</strong></dd>
-          </div>
+          </div>}
           {r.observaciones && (
             <div className="constancia-obs">
               <dt>Observaciones</dt>

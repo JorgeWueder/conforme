@@ -65,13 +65,90 @@ function RegistrarObservacion({ expediente, entregables, recargar }) {
   );
 }
 
+function ComunicarObservacion({ expediente, observaciones, recargar }) {
+  const accion = useAccion();
+  const porComunicar = [...observaciones.values()].filter((registro) => !registro.comunicacion);
+  if (!porComunicar.length) return null;
+  function enviar(evento) {
+    evento.preventDefault();
+    const form = evento.currentTarget;
+    const datos = Object.fromEntries(new FormData(form));
+    accion.ejecutar(async () => {
+      await api(`/expedientes/${expediente.id}/comunicaciones`, {
+        method: "POST", data: { ...datos, entregable_id: Number(datos.entregable_id), plazo_dias: Number(datos.plazo_dias) },
+      });
+      form.reset();
+      recargar();
+      return "Comunicación registrada.";
+    });
+  }
+  return (
+    <details className="panel desplegable" open>
+      <summary>Comunicar observación al proveedor ({porComunicar.length})</summary>
+      <form className="formulario" onSubmit={enviar}>
+        <Aviso>La comunicación es simulada: el sistema registra el canal y el plazo, no envía nada.</Aviso>
+        <Campo titulo="Observación"><select name="entregable_id" required defaultValue="">
+          <option value="" disabled>Selecciona la observación</option>
+          {porComunicar.map((r) => <option key={r.id} value={r.detalle.entregable_id}>Entregable {r.detalle.numero}: {r.detalle.resumen.slice(0, 70)}</option>)}
+        </select></Campo>
+        <Campo titulo="Canal"><input name="canal" defaultValue="Correo institucional (simulado)" maxLength={120} required /></Campo>
+        <Campo titulo="Referencia (opcional)"><input name="referencia" maxLength={120} placeholder="SIM-COM-001" /></Campo>
+        <Campo titulo="Plazo para subsanar (días calendario)"><input name="plazo_dias" type="number" min="1" max="30" defaultValue="3" required /></Campo>
+        <EstadoAccion accion={accion} />
+        <div><button className="primario" disabled={accion.pendiente}>Registrar comunicación</button></div>
+      </form>
+    </details>
+  );
+}
+
+function RevisionDec({ expediente, recargar }) {
+  const accion = useAccion();
+  const [favorable, setFavorable] = useState(true);
+  if (expediente.revision_dec) {
+    return <Aviso tipo={expediente.revision_dec === "conformidad.revisada" ? "info" : "advertencia"}>
+      {expediente.revision_dec === "conformidad.revisada"
+        ? "La conformidad fue revisada y quedó lista para derivar." : "La conformidad fue devuelta al área usuaria."}</Aviso>;
+  }
+  function enviar(evento) {
+    evento.preventDefault();
+    const datos = Object.fromEntries(new FormData(evento.currentTarget));
+    accion.ejecutar(async () => {
+      await api(`/expedientes/${expediente.id}/revision`, { method: "POST", data: { ...datos, favorable } });
+      recargar();
+      return favorable ? "Revisión registrada: lista para derivar." : "Conformidad devuelta.";
+    });
+  }
+  return (
+    <details className="panel desplegable" open>
+      <summary>Revisar la conformidad emitida</summary>
+      <form className="formulario" onSubmit={enviar}>
+        <Aviso>La derivación es una referencia simulada. El devengado y el pago siguen fuera de Conforme.</Aviso>
+        <Campo titulo="Resultado"><select value={favorable ? "si" : "no"} onChange={(e) => setFavorable(e.target.value === "si")}>
+          <option value="si">Favorable: lista para derivar</option>
+          <option value="no">Con discrepancia: devolver al área usuaria</option>
+        </select></Campo>
+        {favorable && <Campo titulo="Referencia de derivación (simulada)"><input name="referencia_derivacion" maxLength={120} placeholder="SIM-DER-001" required /></Campo>}
+        <Campo titulo="Motivo"><textarea name="motivo" maxLength={1000} required /></Campo>
+        <EstadoAccion accion={accion} />
+        <div><button className="primario" disabled={accion.pendiente}>{favorable ? "Registrar revisión" : "Devolver conformidad"}</button></div>
+      </form>
+    </details>
+  );
+}
+
 function Observacion({ registro }) {
   const { subsanacion } = registro;
   return (
     <div className="observacion-entrega">
-      <Indicador tono={subsanacion ? "verde" : "ambar"}>{subsanacion ? "Subsanado" : "Observación pendiente"}</Indicador>
+      <Indicador tono={subsanacion ? "verde" : "ambar"}>{subsanacion ? "Subsanado"
+        : registro.comunicacion ? "Comunicada, en plazo de subsanación" : "Observación sin comunicar"}</Indicador>
       <p>{registro.detalle.resumen}</p>
       <small>{registro.actor} · {fechaHora(registro.ts)}</small>
+      {registro.comunicacion && <div className="subsanacion-entrega">
+        <strong>Comunicación al proveedor</strong>
+        <p>{registro.comunicacion.detalle.resumen}</p>
+        <small>{registro.comunicacion.actor} · {fechaHora(registro.comunicacion.ts)}</small>
+      </div>}
       {subsanacion && <div className="subsanacion-entrega">
         <strong>Subsanación verificada</strong>
         <p>{subsanacion.detalle.resumen}</p>
@@ -92,6 +169,7 @@ function Entregables({ expediente, conformidad, entregables, observaciones, acto
           {" · "}Penalidad aplicada de {soles(conformidad.penalidad_aplicada)}</p>
         {conformidad.observaciones && <p className="secundario">Observaciones: {conformidad.observaciones}</p>}
         {conformidad.codigo_sello && <Sello conformidad={conformidad} id={expediente.id} />}
+        {actor.rol === "abastecimiento" && <RevisionDec expediente={expediente} recargar={recargar} />}
         {actor.rol === "area_usuaria" && <div className="acciones">
           <Link className="boton" to={`${rutaExpediente(expediente.id)}/tdr`}><FileText size={16} /> Historial de TDR</Link>
         </div>}
@@ -100,6 +178,8 @@ function Entregables({ expediente, conformidad, entregables, observaciones, acto
         {actor.rol === "area_usuaria" && entregables.length > 0 && <div className="acciones">
           <Link className="boton" to={`${rutaExpediente(expediente.id)}/tdr`}><FileText size={16} /> Revisar TDR<InsigniaIA /></Link>
         </div>}
+        {actor.rol === "abastecimiento" && <ComunicarObservacion expediente={expediente}
+          observaciones={observaciones} recargar={recargar} />}
         {actor.rol === "area_usuaria" && porObservar.length > 0 && (
           <RegistrarObservacion expediente={expediente} entregables={porObservar} recargar={recargar} />
         )}
@@ -341,6 +421,8 @@ export function Detalle({ actor }) {
         <EstadoTramite expediente={expediente} conformidad={conformidad} pagos={pagos} />
       </div>
       <AvisoNavegacion />
+      <div className="acciones"><a className="boton" href={`/api/expedientes/${expediente.id}/reporte`}>
+        <Download size={16} /> Reporte de trazabilidad (PDF)</a></div>
       <Siguiente actor={actor} expediente={expediente} conformidad={conformidad} entregables={entregables} pendientes={pendientes}
         alertas={alertas} pagos={pagos} />
       <nav className="indice" aria-label="Secciones del expediente">

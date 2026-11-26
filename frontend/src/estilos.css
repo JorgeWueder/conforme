@@ -860,3 +860,11 @@ td.celda-texto { min-width: 12rem; }
   .registro-controles .resumen { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .registro-controles .resumen-boton { justify-content: space-between; text-align: left; font-size: .8rem; }
 }
+
+.cifra { display: grid; gap: .15rem; text-decoration: none; color: inherit; }
+.cifra strong { font-size: 1.8rem; line-height: 1.1; }
+.cifra small { color: var(--texto-secundario, #5b6575); }
+.barras { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.barras li { display: grid; grid-template-columns: 9rem 1fr 2.5rem; align-items: center; gap: .6rem; }
+.barras progress { width: 100%; height: .7rem; }
+.barras strong { text-align: right; }

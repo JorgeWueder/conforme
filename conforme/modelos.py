@@ -9,6 +9,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 ROL_AREA_USUARIA = "area_usuaria"
 ROL_TESORERIA = "tesoreria"
 ROL_AUDITOR = "auditor"
+ROL_ABASTECIMIENTO = "abastecimiento"
 
 ESTADO_ABIERTA = "abierta"
 ESTADO_CON_DESCARGO = "con_descargo"
