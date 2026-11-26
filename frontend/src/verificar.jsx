@@ -1,8 +1,10 @@
+"use client";
+
 import { useEffect, useState } from "react";
 import {
   Check, CircleAlert, CircleCheck, Copy, QrCode, RefreshCw, ShieldCheck, ShieldX, X,
 } from "lucide-react";
-import { useSearchParams } from "react-router";
+import { useConsulta } from "./navegacion";
 import { useDatos } from "./api";
 import { capitalizar, fecha, soles } from "./dominio";
 import { Aviso, EstadoEntregable, Indicador } from "./ui";
@@ -210,7 +212,7 @@ function Consulta({ codigo }) {
 }
 
 export function Verificar() {
-  const [params, setParams] = useSearchParams();
+  const [params, setParams] = useConsulta();
   const [consulta, setConsulta] = useState(0);
   const codigo = (params.get("c") ?? "").trim();
   const [entrada, setEntrada] = useState(codigo);

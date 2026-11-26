@@ -1,6 +1,7 @@
 import { cloneElement, useId, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, CircleAlert, CircleCheck, Info } from "lucide-react";
-import { Link, useLocation } from "react-router";
+import Link from "next/link";
+import { useAvisoNavegacion } from "./navegacion";
 import { REFERENCIAS_REGLAS, SEMAFOROS, estadoEntregable } from "./dominio";
 
 export function Encabezado({ titulo, descripcion, acciones, children }) {
@@ -13,7 +14,7 @@ export function Encabezado({ titulo, descripcion, acciones, children }) {
 }
 
 export function Volver({ to, children }) {
-  return <Link to={to} className="volver"><ChevronLeft size={17} />{children}</Link>;
+  return <Link href={to} className="volver"><ChevronLeft size={17} />{children}</Link>;
 }
 
 export function Aviso({ tipo = "info", children }) {
@@ -31,8 +32,8 @@ export function EstadoAccion({ accion }) {
 }
 
 export function AvisoNavegacion() {
-  const { state } = useLocation();
-  return <Aviso tipo="exito">{state?.aviso}</Aviso>;
+  const aviso = useAvisoNavegacion();
+  return <Aviso tipo="exito">{aviso}</Aviso>;
 }
 
 export function Indicador({ tono = "neutro", children }) {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ExternalLink, Search, ShieldCheck, X } from "lucide-react";
-import { Link, useSearchParams } from "react-router";
+import Link from "next/link";
+import { useConsulta } from "./navegacion";
 import { api, useAccion, useDatos } from "./api";
 import { ACCIONES, AVISO_ALERTAS, ESTADOS, REVISIONES, SEVERIDADES, alertaPendiente, fechaHora, nombreAlerta, rutaExpediente } from "./dominio";
 import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Indicador, ReferenciaRegla, Resumen, Tabla } from "./ui";
@@ -31,7 +32,7 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
     <section className="seccion">
       <div className="fila-titulo">
         <h2>{alerta.expediente} · {alerta.regla} · {nombreAlerta(alerta, reglas)}</h2>
-        <Link className="boton" to={rutaExpediente(alerta.expediente_id)}><ExternalLink size={16} /> Abrir expediente</Link>
+        <Link className="boton" href={rutaExpediente(alerta.expediente_id)}><ExternalLink size={16} /> Abrir expediente</Link>
       </div>
       <article className="panel ficha">
         <div className="acciones">
@@ -107,7 +108,7 @@ const prioridad = (a, b) => (a.severidad === b.severidad ? 0 : a.severidad === "
 
 export function Alertas({ actor }) {
   const recurso = useDatos("/alertas");
-  const [params, setParams] = useSearchParams();
+  const [params, setParams] = useConsulta();
   const seleccion = params.get("alerta") ?? "";
   const filtro = params.get("ver");
   const vista = filtro === null ? "atender" : Object.hasOwn(VISTAS_ALERTA, filtro) ? filtro : null;
@@ -133,7 +134,7 @@ export function Alertas({ actor }) {
     .filter((a) => (!vista || VISTAS_ALERTA[vista].filtro(a, actor)) && (!regla || a.regla === regla))
     .sort(prioridad);
   const columnas = [
-    { titulo: "N.º", valor: (a) => a.id, render: (a) => <Link to={`?${new URLSearchParams({ ...Object.fromEntries(params), alerta: a.id })}`}>{a.id}</Link> },
+    { titulo: "N.º", valor: (a) => a.id, render: (a) => <Link href={`?${new URLSearchParams({ ...Object.fromEntries(params), alerta: a.id })}`}>{a.id}</Link> },
     { titulo: "Severidad", valor: (a) => a.severidad, render: (a) => a.vigente === false ? "—"
       : <Indicador tono={a.severidad === "alta" ? "rojo" : "ambar"}>{SEVERIDADES[a.severidad]}</Indicador> },
     { titulo: "Regla", valor: (a) => a.regla + " · " + nombreAlerta(a, reglas), clase: "celda-texto" },
@@ -185,7 +186,7 @@ const columnasBitacora = [
   { titulo: "Quién", valor: (f) => f.actor ?? "Sistema", clase: "celda-texto" },
   { titulo: "Acción", valor: (f) => ACCIONES[f.accion] ?? f.accion },
   { titulo: "Expediente", valor: (f) => f.expediente,
-    render: (f) => f.expediente_id ? <Link to={rutaExpediente(f.expediente_id)}>{f.expediente}</Link> : "—" },
+    render: (f) => f.expediente_id ? <Link href={rutaExpediente(f.expediente_id)}>{f.expediente}</Link> : "—" },
   { titulo: "Documento", valor: (f) => f.documento_sha256, render: (f) => huella(f.documento_sha256) ?? "—" },
   { titulo: "Huella (anterior → propia)", valor: (f) => f.hash,
     render: (f) => <span className="cadena">{huella(f.hash_anterior) ?? "inicio"} → {huella(f.hash)}</span> },

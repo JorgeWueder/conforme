@@ -186,3 +186,37 @@ class ExtraccionIA(Base):
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revisado_por: Mapped[int | None] = mapped_column(ForeignKey("persona.id"))
     revisado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RevisionPrevia(Base):
+    __tablename__ = "revision_previa"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    asignado_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"))
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RevisionPreviaVersion(Base):
+    __tablename__ = "revision_previa_version"
+    revision_id: Mapped[int] = mapped_column(ForeignKey("revision_previa.id"), primary_key=True)
+    numero: Mapped[int] = mapped_column(primary_key=True)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    contenido: Mapped[dict] = mapped_column(JSONB)
+
+
+class PrevencionEdicion(Base):
+    __tablename__ = "prevencion_edicion"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    fuente: Mapped[str] = mapped_column(Text)
+    fecha_corte: Mapped[date] = mapped_column(Date)
+    descargado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    sha256: Mapped[str] = mapped_column(CHAR(64))
+    alcance: Mapped[str] = mapped_column(Text)
+    manifiesto: Mapped[dict] = mapped_column(JSONB)
+
+
+class PrevencionRegistro(Base):
+    __tablename__ = "prevencion_registro"
+    edicion_id: Mapped[int] = mapped_column(ForeignKey("prevencion_edicion.id"), primary_key=True)
+    fila: Mapped[int] = mapped_column(primary_key=True)
+    ruc: Mapped[str] = mapped_column(CHAR(11))
+    datos: Mapped[dict] = mapped_column(JSONB)

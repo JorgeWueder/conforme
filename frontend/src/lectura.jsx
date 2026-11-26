@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Download, FileText, Plus, Trash2 } from "lucide-react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import Link from "next/link";
+import { useNavegar } from "./navegacion";
+import { useParams } from "next/navigation";
+import { useConsulta } from "./navegacion";
 import { api, useAccion, useDatos } from "./api";
 import { capitalizar, fechaHora, rutaExpediente } from "./dominio";
 import { Aviso, AvisoNavegacion, Campo, Carga, Encabezado, EstadoAccion, Indicador, Volver } from "./ui";
@@ -16,7 +19,7 @@ function Propuesta({ pendiente, expediente, recargar }) {
   const [filas, setFilas] = useState(() => pendiente.resultado.entregables.map((item, id) => ({ id, descripcion: item.descripcion })));
   const [confirmado, setConfirmado] = useState(false);
   const accion = useAccion();
-  const navegar = useNavigate();
+  const navegar = useNavegar();
   const { resultado, avisos_coherencia: avisos } = pendiente;
   const discrepancia = avisos.some(([nivel]) => nivel === "error");
 
@@ -115,7 +118,7 @@ function LecturasDelExpediente({ id }) {
   return (
     <>
       <div className="panel ficha contexto-formulario">
-        <Link to={rutaExpediente(id)}>{expediente.codigo} · {capitalizar(expediente.tipo)} · Plazo de {expediente.plazo_dias} días</Link>
+        <Link href={rutaExpediente(id)}>{expediente.codigo} · {capitalizar(expediente.tipo)} · Plazo de {expediente.plazo_dias} días</Link>
         <p>{expediente.descripcion}</p>
         <small>Entregables existentes: {entregables.map((e) => `${e.numero}. ${e.descripcion}`).join("; ") || "ninguno"}.</small>
       </div>
@@ -162,7 +165,7 @@ export function RevisarTdr() {
 
 export function LecturaIA() {
   const recurso = useDatos("/expedientes");
-  const [params, setParams] = useSearchParams();
+  const [params, setParams] = useConsulta();
   const elegibles = recurso.datos?.filter((e) => !e.tiene_conformidad && (e.tipo === "servicio" || String(e.id) === params.get("expediente")));
   const elegido = elegibles?.find((e) => String(e.id) === params.get("expediente")) ?? elegibles?.[0];
   return (

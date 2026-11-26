@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { CircleAlert, CircleCheck } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router";
+import Link from "next/link";
+import { useNavegar } from "./navegacion";
+import { useParams } from "next/navigation";
 import { api, useAccion, useDatos } from "./api";
 import { fecha, hoy, observacionesDeEntrega, rutaExpediente, soles } from "./dominio";
 import { Aviso, Campo, Carga, Encabezado, EstadoAccion, InsigniaIA, Volver } from "./ui";
@@ -37,7 +39,7 @@ function Formulario({ expediente, entregables, observaciones }) {
   const entrega = expediente.fecha_entrega_real ?? entregaEditada;
   const calculo = useDatos(entrega ? `/expedientes/${expediente.id}/penalidad?entrega=${entrega}` : null).datos;
   const accion = useAccion();
-  const navegar = useNavigate();
+  const navegar = useNavegar();
 
   const cambiar = (id, cambio) => setEstado((actual) => ({ ...actual, [id]: { ...actual[id], ...cambio } }));
   const estadoConTotal = Object.fromEntries(Object.entries(estado).map(([id, e]) => [id, {
@@ -181,7 +183,7 @@ export function Conformidad() {
           · Fecha límite {fecha(recurso.datos.fecha_limite)}</p>
         {expediente.tiene_conformidad ? <Aviso>Este expediente ya tiene una conformidad registrada.</Aviso>
           : !recurso.datos.entregables.length ? <Aviso tipo="advertencia">
-            Faltan los entregables del expediente. <Link to={`${rutaExpediente(id)}/tdr`}>Revisar TDR <InsigniaIA /></Link>
+            Faltan los entregables del expediente. <Link href={`${rutaExpediente(id)}/tdr`}>Revisar TDR <InsigniaIA /></Link>
           </Aviso>
           : <Formulario key={id} expediente={expediente} entregables={recurso.datos.entregables}
             observaciones={observacionesDeEntrega(recurso.datos.eventos)} />}

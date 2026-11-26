@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Plus, Search, Trash2 } from "lucide-react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import Link from "next/link";
+import { useNavegar } from "./navegacion";
+import { useConsulta } from "./navegacion";
 import { api, useAccion, useDatos } from "./api";
 import { fecha, hoy, rutaExpediente, soles } from "./dominio";
 import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Indicador, Resumen, Semaforo, Tabla, Volver } from "./ui";
@@ -10,7 +12,7 @@ const estadoConformidad = (fila) => fila.observaciones_pendientes ? "Con observa
 
 const columnas = (actor, destinoFila) => [
   { titulo: "Expediente", valor: (f) => f.codigo, render: (f) => <>
-    <Link className="codigo-expediente" to={destinoFila(f.id)}>{f.codigo}</Link>
+    <Link className="codigo-expediente" href={destinoFila(f.id)}>{f.codigo}</Link>
     <small className="dato-tabla">{f.numero_orden} · {fecha(f.fecha_orden)}</small>
     <div className="estado-fila-movil">
       <small>{f.observaciones_pendientes ? estadoConformidad(f)
@@ -52,13 +54,13 @@ const VISTAS = {
 };
 
 export function Expedientes({ actor, soloPendientes = false }) {
-  const [params, setParams] = useSearchParams();
+  const [params, setParams] = useConsulta();
   const texto = params.get("q") ?? "";
   const filtro = params.get("ver");
   const vista = Object.hasOwn(VISTAS, filtro) && (!soloPendientes || ["rojo", "ambar", "verde", "observadas"].includes(filtro))
     ? filtro : null;
   const tipo = params.get("tipo") === "bien" ? "bien" : "servicio";
-  const navegar = useNavigate();
+  const navegar = useNavegar();
   const [busqueda, setBusqueda] = useState(texto);
   useEffect(() => setBusqueda(texto), [texto]);
   useEffect(() => {
@@ -93,7 +95,7 @@ export function Expedientes({ actor, soloPendientes = false }) {
   return (
     <>
       <Encabezado titulo={titulo} descripcion={area}
-        acciones={!soloPendientes && actor.rol === "area_usuaria" && <Link className="boton primario" to="/nuevo-expediente"><Plus size={17} />Registrar orden de servicio</Link>} />
+        acciones={!soloPendientes && actor.rol === "area_usuaria" && <Link className="boton primario" href="/nuevo-expediente"><Plus size={17} />Registrar orden de servicio</Link>} />
       <section className="registro-expedientes" aria-label={soloPendientes ? titulo : "Bandeja de expedientes"}>
         <div className="registro-controles">
           <div className="barra-filtros">
@@ -165,7 +167,7 @@ export function NuevoExpediente() {
   const [csv, setCsv] = useState(null);
   const cargaCsv = useAccion();
   const registro = useAccion();
-  const navegar = useNavigate();
+  const navegar = useNavegar();
   const hoyPeru = hoy();
 
   function importar(evento) {

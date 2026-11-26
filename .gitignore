@@ -7,3 +7,8 @@ __pycache__/
 .alterar_demo.json
 node_modules/
 frontend/dist/
+.next/
+.eve/
+venv/
+investigador/.output/
+investigador/.workflow-data/

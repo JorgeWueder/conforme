@@ -5,7 +5,7 @@ MVP de hackathon universitaria (entrega 25 nov 2026). Herramienta web de alerta 
 La base de conocimiento (`C:\Users\USERJSSV\Downloads\BASE DE CONOCIMIENTO-20261126T170903Z-1-001\BASE DE CONOCIMIENTO`) es la fuente de verdad del sistema: léela primero (`README.md`, luego `04-definicion-estrategica/`: brechas, diseño funcional, backlog y decisiones). `PLAN.md` se eliminó; su historial está en git.
 
 ## Stack (no cambiar sin preguntar)
-React 19 con Vite 7 (`frontend/`, Node 20.19+ o 22.12+), API FastAPI en Python 3.11, PostgreSQL con SQLAlchemy 2 y psycopg 3, migraciones SQL numeradas con ejecutor propio, Faker y pytest. Uvicorn sirve la compilación de React (`frontend/dist`) y la API (`/api`) desde el mismo origen. Base de datos en Neon (ramas dev, test y demo). Despliegue previsto: Render con el `Dockerfile` del repositorio; Streamlit Cloud ya no sirve.
+Next.js 16 con React 19 (`frontend/`, Node 22.12+), API FastAPI en Python 3.11, PostgreSQL con SQLAlchemy 2 y psycopg 3, migraciones SQL numeradas con ejecutor propio, Faker y pytest. Next.js reenvía `/api` a Uvicorn. El agente documental vive en `investigador/` y usa eve. Base de datos en Neon (ramas dev, test y demo). Despliegue previsto: Render con el `Dockerfile` del repositorio; Streamlit Cloud ya no sirve.
 
 ## Comandos (PowerShell, desde la raíz)
 ```
@@ -16,16 +16,17 @@ React 19 con Vite 7 (`frontend/`, Node 20.19+ o 22.12+), API FastAPI en Python 3
 .\.venv\Scripts\python.exe -m pytest -q
 npm --prefix frontend ci
 npm --prefix frontend run build
-.\.venv\Scripts\python.exe -m uvicorn app:app --port 8501
+.\.venv\Scripts\python.exe -m uvicorn app:app --port 8000
 ```
-Desarrollo con recarga: `uvicorn app:app --reload --port 8000` y `npm --prefix frontend run dev` (Vite en 8501, reenvía `/api` al 8000).
+Desarrollo con recarga: `uvicorn app:app --reload --port 8000` y `npm --prefix frontend run dev` (Next.js en 8501, reenvía `/api` al 8000).
 
 Configuración en `.env` (ver `.env.example`). `DATABASE_URL_TEST` debe ser una base dedicada: las pruebas borran su esquema. `SESSION_SECRET` firma la cookie de sesión y es obligatorio en el despliegue.
 
 ## Arquitectura
 - `frontend/src/`: páginas React, navegación por rol y banner «Datos sintéticos». Solo habla con `/api` (`frontend/src/api.js` envía el encabezado `X-Conforme` en las escrituras).
-- `app.py`: FastAPI, protección de `/api` (encabezado `X-Conforme`, sin CORS), errores y entrega de `frontend/dist`. `conforme/api.py`: rutas HTTP y sesión en cookie firmada con `itsdangerous`.
-- `conforme/repositorio.py`: **única** puerta a los datos. Toda función recibe `actor` y aplica `conforme/permisos.py` en la consulta. Las rutas de la API no usan SQLAlchemy directamente.
+- `app.py`: FastAPI, protección de `/api` (encabezado `X-Conforme`, sin CORS) y errores. `conforme/api.py`: rutas HTTP. `conforme/dependencias.py` comparte la sesión firmada y las dependencias de FastAPI.
+- `conforme/repositorio.py`: puerta a los datos de expedientes. Toda función recibe `actor` y aplica `conforme/permisos.py` en la consulta. Las rutas de la API no usan SQLAlchemy directamente.
+- `conforme/prevencion/`: API, fuentes y revisiones precontractuales con permisos por asignación.
 - `conforme/bitacora.py`: bitácora encadenada por hash (`registrar`, `registrar_lote`, `verificar_cadena`). La línea de tiempo de un expediente es la bitácora filtrada.
 - `conforme/reglas/`: una función pura por regla (R1–R8; R6 y R7 miran otros expedientes del mismo proveedor y área), `motor.py` (evalúa y sincroniza la tabla `alerta`, idempotente) y `semaforo.py`. Parámetros normativos en `conforme/normativa.py`.
 - `datos/generador.py`: datos con semilla fija, sin tocar la base. `scripts/sembrar.py` los inserta.

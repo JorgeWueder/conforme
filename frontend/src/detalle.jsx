@@ -2,7 +2,8 @@ import { useState } from "react";
 import {
   Bell, ClipboardCheck, Download, FileText, Image, QrCode, RefreshCw, Wallet,
 } from "lucide-react";
-import { Link, useParams } from "react-router";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { api, useAccion, useDatos } from "./api";
 import {
   ACCIONES, ESTADOS, SEVERIDADES, alertaPendiente, capitalizar, fecha, fechaHora, hoy, nombreAlerta,
@@ -171,12 +172,12 @@ function Entregables({ expediente, conformidad, entregables, observaciones, acto
         {conformidad.codigo_sello && <Sello conformidad={conformidad} id={expediente.id} />}
         {actor.rol === "abastecimiento" && <RevisionDec expediente={expediente} recargar={recargar} />}
         {actor.rol === "area_usuaria" && <div className="acciones">
-          <Link className="boton" to={`${rutaExpediente(expediente.id)}/tdr`}><FileText size={16} /> Historial de TDR</Link>
+          <Link className="boton" href={`${rutaExpediente(expediente.id)}/tdr`}><FileText size={16} /> Historial de TDR</Link>
         </div>}
       </> : <>
         <Aviso>{entregables.length ? "Conformidad pendiente." : "Este expediente no tiene entregables cargados."}</Aviso>
         {actor.rol === "area_usuaria" && entregables.length > 0 && <div className="acciones">
-          <Link className="boton" to={`${rutaExpediente(expediente.id)}/tdr`}><FileText size={16} /> Revisar TDR<InsigniaIA /></Link>
+          <Link className="boton" href={`${rutaExpediente(expediente.id)}/tdr`}><FileText size={16} /> Revisar TDR<InsigniaIA /></Link>
         </div>}
         {actor.rol === "abastecimiento" && <ComunicarObservacion expediente={expediente}
           observaciones={observaciones} recargar={recargar} />}
@@ -238,7 +239,7 @@ function AlertasDelExpediente({ expediente, alertas, reglas, actor, recargar }) 
             <p>{a.explicacion}</p>
             {a.implicado && <small>Persona implicada: {a.implicado}</small>}
             <ReferenciaRegla alerta={a} />
-            <Link className="volver" to={rutaAlerta(a.id)}><Bell size={16} /> Revisar en la bandeja</Link>
+            <Link className="volver" href={rutaAlerta(a.id)}><Bell size={16} /> Revisar en la bandeja</Link>
           </article>
         ))}
       </div>
@@ -335,14 +336,14 @@ function Siguiente({ actor, expediente, conformidad, entregables, pendientes, al
   if (actor.rol === "area_usuaria") {
     if (!conformidad && !entregables.length) {
       return <ProximoPaso titulo="Faltan los entregables"
-        acciones={<Link className="boton primario" to={`${ruta}/tdr`}><FileText size={16} /> Revisar TDR<InsigniaIA /></Link>} />;
+        acciones={<Link className="boton primario" href={`${ruta}/tdr`}><FileText size={16} /> Revisar TDR<InsigniaIA /></Link>} />;
     }
     if (!conformidad) {
       return <ProximoPaso tono={pendientes ? "advertencia" : "info"}
         titulo={pendientes ? "Hay entregables observados" : "Falta registrar la conformidad"}
         acciones={<>
           <a className="boton" href="#entregables">Revisar entregables</a>
-          <Link className="boton primario" to={`${ruta}/conformidad`}><ClipboardCheck size={17} /> Registrar conformidad</Link>
+          <Link className="boton primario" href={`${ruta}/conformidad`}><ClipboardCheck size={17} /> Registrar conformidad</Link>
         </>}>
         {pendientes ? "Adjunta la corrección y describe qué verificaste al registrar la conformidad."
           : "Verifica la prestación y adjunta la evidencia de cada entregable."}</ProximoPaso>;
@@ -351,7 +352,7 @@ function Siguiente({ actor, expediente, conformidad, entregables, pendientes, al
       && [a.persona_implicada_id, a.conformante_id].includes(actor.persona_id));
     if (propias.length) {
       return <ProximoPaso tono="advertencia" titulo={`Puedes presentar descargo en ${propias.length === 1 ? "1 alerta" : `${propias.length} alertas`}`}
-        acciones={<Link className="boton primario" to={rutaAlerta(propias[0].id)}><Bell size={16} /> Ir a la alerta</Link>}>
+        acciones={<Link className="boton primario" href={rutaAlerta(propias[0].id)}><Bell size={16} /> Ir a la alerta</Link>}>
         El descargo quedará en el historial de la alerta.</ProximoPaso>;
     }
     return null;
@@ -375,7 +376,7 @@ function Siguiente({ actor, expediente, conformidad, entregables, pendientes, al
   }
   if (actor.rol !== "area_usuaria" && sinCerrar.length) {
     return <ProximoPaso tono="advertencia" titulo={`${sinCerrar.length === 1 ? "1 alerta" : `${sinCerrar.length} alertas`} por revisar`}
-      acciones={<Link className="boton primario" to={rutaAlerta(sinCerrar[0].id)}><Bell size={16} /> Revisar en la bandeja</Link>} />;
+      acciones={<Link className="boton primario" href={rutaAlerta(sinCerrar[0].id)}><Bell size={16} /> Revisar en la bandeja</Link>} />;
   }
   return null;
 }

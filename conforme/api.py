@@ -1,19 +1,19 @@
 """API HTTP de Conforme. Las operaciones de dominio pasan por el repositorio."""
 from datetime import date
 from decimal import Decimal
-from secrets import token_urlsafe
 from typing import Annotated, Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
-from itsdangerous import BadData, URLSafeTimedSerializer
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from conforme import (
-    auth, bitacora, config, db, entregables, evidencias, normativa, reporte, repositorio, sello,
+    auth, bitacora, db, entregables, evidencias, normativa, reporte, repositorio, sello,
+)
+from conforme.dependencias import (
+    COOKIE, DURACION_SESION, FIRMADOR, Sesion, UsuarioActual, actor_actual, usuario_id,
 )
 from conforme.errores import ErrorValidacion
 from conforme.ia import extractor
@@ -21,43 +21,6 @@ from conforme.modelos import ROL_AREA_USUARIA
 from conforme.permisos import Actor, exigir_rol
 
 router = APIRouter()
-_COOKIE = "conforme_sesion"
-_DURACION_SESION = 8 * 60 * 60
-_FIRMADOR = URLSafeTimedSerializer(config.leer("SESSION_SECRET") or token_urlsafe(48),
-                                   salt="conforme-sesion")
-
-
-def sesion_db():
-    try:
-        with db.sesion() as sesion:
-            yield sesion
-    except IntegrityError as error:
-        if getattr(error.orig, "sqlstate", None) == "23505":
-            raise HTTPException(409, "Los datos cambiaron. Actualiza la página e inténtalo de nuevo.") from error
-        raise
-
-
-Sesion = Annotated[Session, Depends(sesion_db, scope="function")]
-
-
-def usuario_id(request: Request) -> int | None:
-    valor = request.cookies.get(_COOKIE)
-    if valor:
-        try:
-            return _FIRMADOR.loads(valor, max_age=_DURACION_SESION)
-        except BadData:
-            pass
-    return None
-
-
-def actor_actual(sesion: Sesion, identificador: Annotated[int | None, Depends(usuario_id)]) -> Actor:
-    actor = auth.actor_por_id(sesion, identificador) if identificador is not None else None
-    if actor is None:
-        raise HTTPException(401, "Inicia sesión para continuar.")
-    return actor
-
-
-UsuarioActual = Annotated[Actor, Depends(actor_actual)]
 
 
 @router.get("/salud")
@@ -76,7 +39,7 @@ def ingresar(datos: Credenciales, request: Request, response: Response, sesion: 
     actor = auth.autenticar(sesion, datos.username, datos.password)
     if actor is None:
         raise HTTPException(401, "Usuario o contraseña incorrectos.")
-    response.set_cookie(_COOKIE, _FIRMADOR.dumps(actor.usuario_id), max_age=_DURACION_SESION,
+    response.set_cookie(COOKIE, FIRMADOR.dumps(actor.usuario_id), max_age=DURACION_SESION,
                         httponly=True, samesite="lax", secure=request.url.scheme == "https")
     return actor
 
@@ -89,7 +52,7 @@ def sesion_actual(actor: UsuarioActual):
 @router.delete("/sesion", status_code=204)
 def salir(request: Request):
     respuesta = Response(status_code=204)
-    respuesta.delete_cookie(_COOKIE, httponly=True, samesite="lax",
+    respuesta.delete_cookie(COOKIE, httponly=True, samesite="lax",
                             secure=request.url.scheme == "https")
     return respuesta
 
@@ -157,12 +120,25 @@ def crear_expediente(datos: NuevoExpediente, sesion: Sesion, actor: UsuarioActua
     return {"id": repositorio.crear_expediente(sesion, actor, **datos.model_dump())}
 
 
+def _origen_publico(request: Request) -> str:
+    # Next.js reescribe Host hacia FastAPI y conserva el host público en este encabezado.
+    host = request.headers.get("x-forwarded-host", "")
+    if host and host.isascii() and not any(c.isspace() or c in "/\\@?#," for c in host):
+        try:
+            origen = urlsplit(f"{request.url.scheme}://{host}")
+            if origen.hostname and origen.port != 0:
+                return f"{origen.scheme}://{origen.netloc}"
+        except ValueError:
+            pass
+    return str(request.base_url).rstrip("/")
+
+
 @router.get("/expedientes/{expediente_id}")
 def detalle_expediente(expediente_id: int, request: Request, sesion: Sesion, actor: UsuarioActual):
     expediente = expediente_visible(sesion, actor, expediente_id)
     conformidad = repositorio.obtener_conformidad(sesion, actor, expediente_id)
     if conformidad and conformidad["codigo_sello"]:
-        origen = str(request.base_url).rstrip("/")
+        origen = _origen_publico(request)
         conformidad["url_sello"] = sello.url_verificacion(conformidad["codigo_sello"], sello.url_base(origen))
         conformidad["aviso_url"] = sello.aviso_url_base(origen)
     return {
@@ -218,7 +194,7 @@ def imagen_sello(expediente_id: int, request: Request, sesion: Sesion, actor: Us
     conformidad = repositorio.obtener_conformidad(sesion, actor, expediente_id)
     if not conformidad or not conformidad["codigo_sello"]:
         raise HTTPException(404, "El expediente no tiene sello.")
-    base = sello.url_base(str(request.base_url).rstrip("/"))
+    base = sello.url_base(_origen_publico(request))
     codigo = conformidad["codigo_sello"]
     if descarga:
         return adjunto(sello.png_sello(codigo, expediente["codigo"], conformidad["sello_hash"], base),

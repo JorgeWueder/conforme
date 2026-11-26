@@ -1,0 +1,85 @@
+@import "@fontsource-variable/dm-sans";
+@import "@fontsource-variable/newsreader";
+
+:root {
+  font-family: "DM Sans Variable", system-ui, sans-serif;
+  --titulos: "Newsreader Variable", Georgia, serif;
+}
+
+h1 {
+  font-family: var(--titulos);
+  font-weight: 500;
+  letter-spacing: -.035em;
+}
+
+.marco-privado { grid-template-columns: 15.5rem minmax(0, 1fr); }
+.lateral {
+  padding: 1.6rem 1rem 1rem;
+  gap: 1.8rem;
+  background: var(--azul-oscuro);
+  scrollbar-width: thin;
+}
+.lateral-marca { display: flex; gap: 1rem; justify-content: space-between; align-items: center; }
+.lateral-interior { display: flex; flex: 1; flex-direction: column; gap: 1.4rem; min-height: 0; }
+.lateral nav { gap: 1.25rem; }
+.menu-grupo { gap: .2rem; }
+.menu-grupo + .menu-grupo { border-color: #3564a1; padding-top: 1rem; }
+.menu-titulo { padding-inline: .75rem; color: #bdd2ef; font-weight: 650; font-size: .75rem; }
+.lateral nav a { min-height: 2.55rem; border-radius: .18rem .4rem .4rem .18rem; }
+.lateral nav a.active { background: #10488d; }
+.marca-nombre { font-family: var(--titulos); font-size: 1.85rem; line-height: 1; font-weight: 550; }
+.marca-icono { width: 2.55rem; height: 2.55rem; border-radius: .4rem; }
+.marca-publica .marca-nombre { font-size: 1.45rem; }
+.marca-publica .marca-icono { width: 2.3rem; height: 2.3rem; }
+.marca-subtitulo { color: #c2d7fa; margin-top: .05rem; }
+.perfil { border-color: #3564a1; }
+.perfil-identidad { display: flex; align-items: center; gap: .6rem; }
+.perfil-identidad strong, .perfil-identidad small { display: block; }
+.perfil-identidad small { font-size: .75rem; }
+.perfil-inicial {
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  background: #eaf2fc22;
+  color: var(--dorado);
+  flex: none;
+  font-weight: 700;
+}
+.menu-movil { display: none; }
+.barra-institucional {
+  padding-inline: clamp(1rem, 3.2vw, 2.75rem);
+  min-height: 3.7rem;
+  background: var(--papel);
+  border-bottom-color: var(--borde-suave);
+}
+.barra-institucional strong { font-weight: 650; }
+.marco-publico .barra-institucional strong { visibility: hidden; }
+.marco-publico .barra-publica nav a[aria-current="page"] { text-decoration: underline; }
+
+@media (max-width: 52rem) {
+  .marco-privado { grid-template-columns: minmax(0, 1fr); }
+  .lateral { gap: .7rem; }
+  .menu-movil {
+    display: inline-flex;
+    padding: .42rem .65rem;
+    color: var(--papel);
+    background: transparent;
+    border-color: #7599ce;
+  }
+  .menu-movil:hover { background: #10488d; border-color: #a3bfe5; }
+  .lateral-interior { display: none; }
+  .menu-abierto .lateral-interior { display: flex; }
+  .lateral nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+  .menu-grupo + .menu-grupo { border-top: 0; padding-top: 0; }
+  .menu-titulo { padding: .35rem .4rem; }
+  .lateral nav a { padding-inline: .45rem; white-space: normal; }
+  .barra-institucional { min-height: 3rem; }
+}
+
+@media (max-width: 32rem) {
+  .barra-institucional { min-height: 2.7rem; gap: .5rem; }
+  .barra-institucional strong { font-size: .72rem; }
+  .barra-institucional .marca-demo { font-size: .69rem; }
+}

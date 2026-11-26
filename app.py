@@ -1,16 +1,16 @@
-"""Servidor de la API y de la compilación de React."""
-from pathlib import Path
-
+"""Servidor FastAPI de Conforme."""
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from conforme.api import router
 from conforme.errores import ErrorValidacion
 from conforme.permisos import PermisoDenegado
+from conforme.prevencion import api as prevencion
 
 app = FastAPI(title="Conforme")
 app.include_router(router, prefix="/api")
+app.include_router(prevencion.router, prefix="/api")
+prevencion.errores(app)
 
 
 @app.middleware("http")
@@ -35,20 +35,3 @@ async def error_validacion(_request: Request, error: ErrorValidacion):
 @app.exception_handler(PermisoDenegado)
 async def permiso_denegado(_request: Request, error: PermisoDenegado):
     return JSONResponse({"detail": str(error)}, status_code=403)
-
-
-_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
-app.mount("/assets", StaticFiles(directory=_DIST / "assets", check_dir=False), name="assets")
-
-
-@app.get("/{ruta:path}", include_in_schema=False)
-def interfaz(ruta: str):
-    if ruta == "api" or ruta.startswith("api/"):
-        return JSONResponse({"detail": "Ruta no encontrada."}, status_code=404)
-    indice = _DIST / "index.html"
-    if not indice.is_file():
-        return JSONResponse(
-            {"detail": "Usa el servidor de Vite o compila el frontend con npm run build."},
-            status_code=503,
-        )
-    return FileResponse(indice, headers={"Cache-Control": "no-cache"})

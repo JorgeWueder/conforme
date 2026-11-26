@@ -24,6 +24,51 @@ export async function api(ruta, { method = "GET", data, signal } = {}) {
   return datos;
 }
 
+export async function apiStream(ruta, { data, signal, onEvento } = {}) {
+  const headers = { "X-Conforme": "1", "Content-Type": "application/json" };
+  const respuesta = await fetch(`/api${ruta}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(data ?? {}),
+    signal,
+  });
+  if (!respuesta.ok) {
+    if (respuesta.status === 401 && ruta !== "/sesion") {
+      window.dispatchEvent(new Event("sesion-vencida"));
+    }
+    const datos = await respuesta.json().catch(() => null);
+    const detalle = datos?.detail;
+    const mensaje = typeof detalle === "string" ? detalle
+      : respuesta.status === 422 ? "Revisa los datos de la revisión."
+      : "No se pudo iniciar el análisis.";
+    throw Object.assign(new Error(mensaje), { status: respuesta.status });
+  }
+  if (!respuesta.body) {
+    throw new Error("El navegador no permite lectura progresiva de la respuesta.");
+  }
+  const lector = respuesta.body.getReader();
+  const decodificador = new TextDecoder("utf-8");
+  let pendiente = "";
+  try {
+    while (true) {
+      const { value, done } = await lector.read();
+      if (done) break;
+      pendiente += decodificador.decode(value, { stream: true });
+      const lineas = pendiente.split("\n");
+      pendiente = lineas.pop() ?? "";
+      for (const linea of lineas) {
+        const texto = linea.trim();
+        if (!texto) continue;
+        onEvento?.(JSON.parse(texto));
+      }
+    }
+    const resto = (pendiente + decodificador.decode()).trim();
+    if (resto) onEvento?.(JSON.parse(resto));
+  } finally {
+    lector.releaseLock();
+  }
+}
+
 export function useDatos(ruta) {
   const [resultado, setResultado] = useState({});
   const [version, setVersion] = useState(0);

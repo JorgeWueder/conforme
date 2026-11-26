@@ -1,6 +1,6 @@
 # Conforme
 
-Prototipo para el **Desafío 2: Integridad institucional y Compliance** de la Hackathon Innova Norte 3G. Conforme reúne expedientes, evidencias y alertas para que el personal de la Universidad Nacional de Trujillo (UNT) pueda revisar el sustento de una conformidad antes del pago y reconstruir el trámite. La demo utiliza órdenes, personas y documentos sintéticos.
+Prototipo para el **Desafío 2: Integridad institucional y Compliance** de la Hackathon Innova Norte 3G. Conforme ayuda a Abastecimiento de la Universidad Nacional de Trujillo (UNT) a comprobar candidatos antes de emitir una orden. También reúne expedientes, evidencias y alertas para el seguimiento de las contrataciones. La demo utiliza órdenes, personas y documentos sintéticos.
 
 [Ingresar a la demo de Conforme](https://conforme-15md.onrender.com/login)
 
@@ -11,16 +11,17 @@ Prototipo para el **Desafío 2: Integridad institucional y Compliance** de la Ha
 | Cuenta | Perfil | Módulos y acciones |
 | --- | --- | --- |
 | `inf1` | Área usuaria | **Expedientes**, **Registrar orden**, **Revisar TDR** y **Conformidades**. Registra observaciones, sustenta su subsanación y guarda la conformidad. Puede consultar sus **Alertas**. |
+| `dec1` | Abastecimiento (DEC) | **Revisión previa**, **Expedientes**, **Indicadores** y **Alertas**. Consulta fuentes, investiga documentos y registra las comprobaciones antes de emitir una orden. |
 | `tes1` | Tesorería | **Expedientes** y **Alertas**. Revisa el sustento y registra la referencia de un pago efectuado fuera de Conforme. |
 | `oci1` | Órgano de Control Institucional (OCI) | **Expedientes**, **Alertas** y **Bitácora**. Consulta evidencias e historial y verifica la integridad de los registros. |
 
-En la demo desplegada, las tres cuentas usan la contraseña `qm716zktiuypev`. En una instalación local, usan la contraseña definida en `DEMO_PASSWORD` al sembrar la base.
+En la demo desplegada, las cuentas usan la contraseña `qm716zktiuypev`. En una instalación local, usan la contraseña definida en `DEMO_PASSWORD` al sembrar la base.
 
 **Verificar sello** también está disponible sin iniciar sesión, mediante el código o el QR del expediente.
 
 ## Puesta en marcha
 
-Requiere Python 3.11, PostgreSQL y Node.js 20 a partir de la versión 20.19, o Node.js 22.12 en adelante. Desde la raíz del repositorio, crea un entorno virtual con `python -m venv .venv`. Actívalo con `source .venv/bin/activate` en Bash o con `.\.venv\Scripts\Activate.ps1` en PowerShell.
+Requiere Python 3.11, PostgreSQL y Node.js 22.12 o posterior. El investigador eve requiere Node.js 24 o posterior. Desde la raíz del repositorio, crea un entorno virtual con `python -m venv .venv`. Actívalo con `source .venv/bin/activate` en Bash o con `.\.venv\Scripts\Activate.ps1` en PowerShell.
 
 Copia [`.env.example`](.env.example) como `.env` y configura `DATABASE_URL` con una base vacía para la demo y `DEMO_PASSWORD` con la contraseña de las cuentas. Ejecuta estos comandos desde la raíz del repositorio.
 
@@ -29,11 +30,39 @@ python -m pip install -r requirements.txt
 python -m scripts.migrar
 python -m scripts.sembrar
 npm --prefix frontend ci
-npm --prefix frontend run build
-python -m uvicorn app:app --port 8501
+python -m uvicorn app:app --port 8000
 ```
 
-Abre [Conforme en el navegador](http://localhost:8501). FastAPI sirve la interfaz de React y la API desde el mismo origen. Para una base ya cargada, ejecuta `scripts.migrar` para actualizar el esquema. La siembra inicial se ejecuta sobre una base vacía.
+En otra terminal, ejecuta `npm --prefix frontend run dev` y abre [Conforme](http://localhost:8501). Next.js sirve la interfaz y reenvía `/api` a FastAPI. En una base ya cargada, basta aplicar las migraciones pendientes.
+
+## Revisión previa
+
+Entra con `dec1`, abre **Revisión previa** y crea un caso con requerimiento, RUC y cotizaciones. **Consultar fuentes** cruza las ediciones cargadas a la fecha de la compra. Luego puedes abrir la evidencia de cada candidato, registrar comprobaciones y actuaciones, y cerrar la revisión. Los datos de acceso institucional se cotejan en el canal y se registran como constancia.
+
+Con `PREVENCION_DEMO=1` aparece **Abrir caso de ejemplo**. El caso usa empresas, documentos y relaciones ficticias. Si eve no está configurado, la ficha muestra el ejemplo de investigación con esa etiqueta.
+
+### Cargar fuentes públicas
+
+Usa `python -m scripts.importar_prevencion --help` para consultar opciones. La importación se ejecuta fuera de la petición web y puede programarse con el planificador disponible en cada entorno. Una edición repetida conserva el identificador anterior. Cada edición almacena su período, cobertura y huella. Los índices automáticos se limitan a empresas con RUC que empieza en 20. Los candidatos de otros tipos conservan las comprobaciones manuales.
+
+```sh
+python -m scripts.importar_prevencion tcp
+python -m scripts.importar_prevencion sunat --corte YYYY-MM-DD
+python -m scripts.importar_prevencion orden --archivo ./ordenes_oficiales.xlsx --corte YYYY-MM-DD --alcance "2026 · La Libertad"
+```
+
+Usa la fecha de corte publicada y una partición estable por archivo de órdenes. CONOSCE admite una ruta oficial directa con `--url`. Si cambia el encabezado de una edición, indica una asignación como `--columna "acto=Número de orden"`. Las otras ediciones disponibles son `judicial`, `multa`, `penalidad` y `vinculo`. Las fuentes pendientes o desactualizadas se muestran en la ficha.
+
+### Investigar con eve
+
+Copia `investigador/.env.example` a `investigador/.env`, configura un modelo y un token aleatorio. En el `.env` de FastAPI usa el mismo `CONFORME_EVE_TOKEN` y define `CONFORME_EVE_URL=http://127.0.0.1:3010`.
+
+```sh
+npm --prefix investigador ci
+npm --prefix investigador run dev
+```
+
+La API recupera actos enlazados desde los hallazgos. Configura `PREVENCION_BRAVE_API_KEY` para buscar más documentos en portales oficiales usando el RUC o número de acto. eve recibe un conjunto acotado de páginas públicas. La API verifica el extracto y la página de cada cita y guarda el resultado como borrador. Los datos personales de intervinientes y las cotizaciones quedan en la revisión local. Para iniciar el servicio compilado, ejecuta `npm --prefix investigador run build` y luego `npm --prefix investigador start`. El servicio escucha en loopback y usa el token compartido. En instalaciones con varios servicios, ubícalo en la red privada de la API.
 
 ## Recorrido de la demo
 
@@ -60,9 +89,9 @@ La trazabilidad y la separación de funciones apoyan el control interno y la pre
 
 ## Desarrollo y despliegue
 
-Para trabajar con recarga automática, inicia `python -m uvicorn app:app --reload --port 8000` y `npm --prefix frontend run dev` en terminales distintas. Vite sirve la interfaz en el puerto 8501 y reenvía `/api` al 8000. Si cambias el puerto de la API, define `CONFORME_API_DEV` con su URL antes de iniciar Vite.
+Para recargar FastAPI al editar, añade `--reload` a Uvicorn. Si la API usa otra dirección, define `CONFORME_API_URL` antes de iniciar Next.js. Para probar el frontend compilado localmente, ejecuta `npm --prefix frontend run build` y `npm --prefix frontend start`.
 
-El [Dockerfile](Dockerfile) compila React y sirve la interfaz y la API en un contenedor. En el despliegue, usa HTTPS, configura `SESSION_SECRET` con un valor aleatorio estable compartido por los procesos de la API y define `BASE_URL` con la URL pública para generar los enlaces de los QR.
+El [Dockerfile](Dockerfile) compila Next.js y arranca Next.js y FastAPI en el mismo contenedor. En el despliegue, usa HTTPS, configura `SESSION_SECRET` con un valor aleatorio estable compartido por los procesos de la API y define `BASE_URL` con la URL pública para generar los enlaces de los QR.
 
 ## Pruebas
 

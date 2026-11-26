@@ -1,11 +1,11 @@
-import { Link } from "react-router";
+import Link from "next/link";
 import { useDatos } from "./api";
 import { ESTADOS, SEMAFOROS, SEVERIDADES } from "./dominio";
 import { Carga, Encabezado, Indicador } from "./ui";
 
 function Cifra({ titulo, valor, ayuda, to }) {
   const cuerpo = <><strong>{valor}</strong><span>{titulo}</span>{ayuda && <small>{ayuda}</small>}</>;
-  return to ? <Link className="panel cifra" to={to}>{cuerpo}</Link> : <div className="panel cifra">{cuerpo}</div>;
+  return to ? <Link className="panel cifra" href={to}>{cuerpo}</Link> : <div className="panel cifra">{cuerpo}</div>;
 }
 
 function Barras({ titulo, datos, nombres = {}, tonos = {} }) {

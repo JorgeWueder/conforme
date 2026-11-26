@@ -17,3 +17,10 @@ frontend/dist
 tests
 _review_deck.pptx
 *.md
+venv
+frontend/.next
+investigador/node_modules
+investigador/.eve
+investigador/.output
+**/.env
+**/.env.*
