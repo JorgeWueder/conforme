@@ -67,8 +67,12 @@ export function Integridad() {
           { titulo: "Expediente", valor: (f) => f.expediente, render: (f) => <Link href={rutaExpediente(f.expediente_id)}>{f.expediente}</Link> },
           { titulo: "Evaluador", valor: (f) => f.evaluador },
           { titulo: "Revisor", valor: (f) => f.revisor },
-          { titulo: "Estado", valor: (f) => ESTADOS_REVISION[f.estado] ?? f.estado },
+          { titulo: "Estado", valor: (f) => ESTADOS_REVISION[f.estado] ?? f.estado,
+            render: (f) => <Indicador tono={f.estado === "aprobada" ? "verde" : f.estado === "observada" ? "ambar" : "neutro"}>
+              {ESTADOS_REVISION[f.estado] ?? f.estado}</Indicador> },
           { titulo: "Proveedor", valor: (f) => f.proveedor_ruc },
+          { titulo: "Evaluación", valor: (f) => f.expediente_id,
+            render: (f) => <Link href={`/prevencion/${f.expediente_id}`}>Ver evaluación</Link> },
         ]} />
     </section>
     <section className="seccion">

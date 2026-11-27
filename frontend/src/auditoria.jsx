@@ -145,7 +145,10 @@ export function Alertas({ actor }) {
       : <Indicador tono={a.severidad === "alta" ? "rojo" : "ambar"}>{SEVERIDADES[a.severidad]}</Indicador> },
     { titulo: "Regla", valor: (a) => a.regla + " · " + nombreAlerta(a, reglas), clase: "celda-texto" },
     { titulo: "Ámbito", valor: (a) => AMBITOS[a.ambito] },
-    { titulo: "Efecto", valor: (a) => a.bloqueante && alertaPendiente(a) ? "Bloquea" : "Revisión" },
+    { titulo: "Efecto", valor: (a) => a.bloqueante && alertaPendiente(a) ? "Bloquea" : "Revisión",
+      render: (a) => a.bloqueante && alertaPendiente(a)
+        ? <Indicador tono="rojo">Bloquea</Indicador>
+        : <span className="secundario">Revisión</span> },
     { titulo: "Expediente", valor: (a) => a.expediente },
     ...(actor.rol === "area_usuaria" ? [] : [{ titulo: "Área", valor: (a) => a.area_sigla }]),
     { titulo: "Estado", valor: (a) => a.vigente === false ? "Criterio anterior" : ESTADOS[a.estado] },

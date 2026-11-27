@@ -955,16 +955,22 @@ def registrar_pago(
     verificacion = verificar_pago(sesion, actor, expediente_id, penalidad)
     if not verificacion["apto"]:
         raise ErrorValidacion("Pago bloqueado. " + " ".join(verificacion["bloqueos"]))
+    from conforme.adaptadores import obtener_siaf
+    siaf = obtener_siaf().consultar_devengado(
+        numero_orden=expediente.numero_orden, monto=monto, referencia_siaf=referencia or None,
+    )
+    if not siaf.verificado:
+        raise ErrorValidacion(f"SIAF rechazó la verificación del pago: {siaf.mensaje}")
     control = VerificacionPago(
         expediente_id=expediente_id, verificado_por=actor.persona_id,
-        checklist={"controles": verificacion["controles"]}, bloqueos_activos=[],
-        apto_para_pago=True, creado_en=datetime.now(timezone.utc))
+        checklist={"controles": verificacion["controles"], "siaf_modo": siaf.modo},
+        bloqueos_activos=[], apto_para_pago=True, creado_en=datetime.now(timezone.utc))
     sesion.add(control)
     sesion.flush()
     pago = Pago(
         expediente_id=expediente.id, fecha_pago=fecha_pago, monto=monto,
         penalidad_descontada=penalidad, registrado_por=actor.persona_id,
-        referencia_siaf=referencia or None, verificacion_pago_id=control.id,
+        referencia_siaf=siaf.referencia, verificacion_pago_id=control.id,
         registrado_en=datetime.now(timezone.utc),
     )
     sesion.add(pago)
@@ -974,10 +980,44 @@ def registrar_pago(
         sesion, actor_id=actor.persona_id, accion="pago.registrado", entidad="pago",
         entidad_id=pago.id, expediente_id=expediente.id,
         detalle={"fecha_pago": fecha_pago, "monto": monto, "penalidad_descontada": penalidad,
-                 "referencia_siaf": referencia or None},
+                 "referencia_siaf": siaf.referencia, "siaf_modo": siaf.modo},
     )
     motor.sincronizar(sesion, [expediente.id])
     return pago.id
+
+
+def bandeja_pagos(sesion: Session, actor: Actor) -> list[dict]:
+    """Bandeja de verificación y pagos: expedientes con orden y estado de sus 6 controles."""
+    exigir_rol(actor, ROL_TESORERIA, ROL_ABASTECIMIENTO, ROL_AUDITOR)
+    expedientes_orden = [e for e in listar_expedientes(sesion, actor) if e["fecha_orden"] is not None]
+    filas = []
+    for e in expedientes_orden:
+        if e["tiene_pago"]:
+            filas.append({
+                "id": e["id"], "codigo": e["codigo"], "numero_orden": e["numero_orden"],
+                "descripcion": e["descripcion"], "area": e["area"], "proveedor": e["proveedor"],
+                "monto": e["monto"], "fecha_orden": e["fecha_orden"], "estado_flujo": e["estado_flujo"],
+                "estado_pago": "pagado", "apto": True, "bloqueos": [], "controles_ok": 6, "controles_total": 6,
+                "responsables": [],
+            })
+            continue
+        verif = verificar_pago(sesion, actor, e["id"])
+        fallados = [c for c in verif["controles"] if not c["correcto"]]
+        filas.append({
+            "id": e["id"], "codigo": e["codigo"], "numero_orden": e["numero_orden"],
+            "descripcion": e["descripcion"], "area": e["area"], "proveedor": e["proveedor"],
+            "monto": e["monto"], "fecha_orden": e["fecha_orden"], "estado_flujo": e["estado_flujo"],
+            "estado_pago": "listo" if verif["apto"] else "bloqueado",
+            "apto": verif["apto"],
+            "bloqueos": [{"nombre": c["nombre"], "detalle": c["detalle"], "responsable": c["responsable"]}
+                         for c in fallados],
+            "controles_ok": len(verif["controles"]) - len(fallados),
+            "controles_total": len(verif["controles"]),
+            "responsables": sorted({c["responsable"] for c in fallados}),
+        })
+    orden = {"listo": 0, "bloqueado": 1, "pagado": 2}
+    filas.sort(key=lambda f: (orden[f["estado_pago"]], -f["id"]))
+    return filas
 
 
 def reevaluar(sesion: Session, actor: Actor, expediente_id: int) -> int:
@@ -1160,8 +1200,8 @@ def escalar_alerta(sesion: Session, actor: Actor, alerta_id: int, motivo: str) -
                           accion="oci.seguimiento_abierto", entidad="alerta",
                           entidad_id=seguimiento.id, expediente_id=alerta.expediente_id,
                           detalle={"alerta_origen_id": alerta.id, "resumen": seguimiento.explicacion})
-        from conforme import notificaciones
-        notificaciones.aviso_interno(
+        from conforme.adaptadores import obtener_notificaciones
+        obtener_notificaciones().enviar_aviso(
             sesion, actor_id=actor.persona_id, expediente_id=alerta.expediente_id,
             rol_destino=ROL_AUDITOR, motivo=f"Alerta {alerta.id} escalada al OCI.",
             entidad="alerta", entidad_id=seguimiento.id)

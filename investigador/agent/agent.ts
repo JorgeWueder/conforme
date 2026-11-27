@@ -17,8 +17,7 @@ function resolverModelo() {
 }
 
 export default defineAgent({
-  description: "Revisa documentos públicos y contrasta evidencias de conformidad con lo contratado.",
+  description: "Analiza proveedores, revisa TDR y documentación forense (Benford) y contrasta evidencias de conformidad.",
   defaultTools: false,
-  tool: false,
   model: resolverModelo(),
 });

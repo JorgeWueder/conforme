@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3, Bell, ClipboardCheck, Database, FileSearch, FileText, FlaskConical, FolderOpen,
-  LogOut, Menu, Plus, QrCode, ScanSearch, ShieldCheck, X,
+  LogOut, Menu, Plus, QrCode, ScanSearch, ShieldCheck, Wallet, X,
 } from "lucide-react";
 import { useState } from "react";
 import { useAccion, useDatos } from "./api";
@@ -34,6 +34,8 @@ export function Marco({ actor, cerrarSesion, children }) {
   const evaluaciones = useDatos(rol === "abastecimiento" && ruta ? `/evaluaciones?panel=${encodeURIComponent(ruta)}` : null);
   const porEvaluar = evaluaciones.datos?.filter((f) => f.me_toca_revisar
     || (f.estado_flujo === "en_evaluacion_proveedores" && (f.soy_evaluador || !f.evaluador_id))).length ?? 0;
+  const pagos = useDatos(rol === "tesoreria" && ruta ? `/pagos/bandeja?panel=${encodeURIComponent(ruta)}` : null);
+  const listosPagar = pagos.datos?.filter((f) => f.estado_pago === "listo").length ?? 0;
   const alertas = useDatos(actor && ruta ? `/alertas?panel=${encodeURIComponent(ruta)}` : null);
   const porAtender = alertas.datos?.alertas.filter((a) => meToca(a, actor)).length ?? 0;
   // Mapa de módulos por rol (PLAN.md, sección 5). El expediente es el eje de todo.
@@ -47,6 +49,7 @@ export function Marco({ actor, cerrarSesion, children }) {
       ] : []),
       ...(["abastecimiento", "tesoreria", "auditor"].includes(rol)
         ? [["/prevencion", "Análisis de proveedores", ScanSearch], ["/documentos", "Revisión documental", FileSearch]] : []),
+      ...(rol === "tesoreria" ? [["/pagos", "Verificación y pagos", Wallet]] : []),
     ]],
     ["Seguimiento", [
       ["/alertas", "Alertas", Bell],
@@ -82,6 +85,8 @@ export function Marco({ actor, cerrarSesion, children }) {
                         <span className="insignia" aria-label={`${porAtender} por atender`}>{porAtender}</span>}
                       {destino === "/prevencion" && porEvaluar > 0 &&
                         <span className="insignia" aria-label={`${porEvaluar} por atender`}>{porEvaluar}</span>}
+                      {destino === "/pagos" && listosPagar > 0 &&
+                        <span className="insignia" aria-label={`${listosPagar} listos para pagar`}>{listosPagar}</span>}
                     </Link>;
                   })}
                 </div>

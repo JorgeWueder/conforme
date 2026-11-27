@@ -22,8 +22,8 @@ from conforme.modelos import (
     ROL_ABASTECIMIENTO, ROL_AUDITOR, ROL_TESORERIA, Area, DocumentoPostor, Entregable, Evidencia, Expediente,
     ExpedientePostor, Pago, Persona, Proveedor, RevisionDocumental,
 )
+from conforme.adaptadores import obtener_fuentes
 from conforme.permisos import Actor, PermisoDenegado, exigir_rol
-from conforme.proveedores import fuentes
 
 ROLES_LECTURA = (ROL_ABASTECIMIENTO, ROL_TESORERIA, ROL_AUDITOR)
 ROLES_ANALISIS = (ROL_ABASTECIMIENTO,)
@@ -199,8 +199,9 @@ def analizar(sesion: Session, actor: Actor, expediente_id: int) -> dict:
     for sha in sesion.scalars(select(Evidencia.sha256).where(Evidencia.sha256.in_(huellas))):
         reciclados.setdefault(sha, []).append("una evidencia de conformidad")
     inicio = {}
+    adaptador_fuentes = obtener_fuentes()
     for p in postores.values():
-        ficha = fuentes.consultar(p.ruc, p.razon_social)
+        ficha = adaptador_fuentes.consultar_empresa(p.ruc, p.razon_social)
         if not ficha.padron.generico:
             inicio[p.id] = ficha.padron.inicio_actividades
     entregables = list(sesion.scalars(select(Entregable.descripcion).where(Entregable.expediente_id == expediente_id)

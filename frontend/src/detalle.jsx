@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  Bell, ClipboardCheck, Download, FileText, Image, QrCode, RefreshCw, ScanSearch, Stamp, Wallet,
+  Bell, ClipboardCheck, Download, FileSearch, FileText, Image, QrCode, RefreshCw, ScanSearch, Stamp, Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -365,7 +365,7 @@ function Pagos({ expediente, conformidad, abiertas, pendientes, pagos, actor, ve
         </li>)}</ul>
       </> : <p className="vacio">Sin pagos registrados.</p>}
       {actor.rol === "tesoreria" && tieneOrden(expediente) && (
-        <details className="panel desplegable" id="registrar-pago">
+        <details className="panel desplegable" id="registrar-pago" open={!pagos.length}>
           <summary>Verificación previa y registro de pago</summary>
           <h3>Controles obligatorios</h3>
           {verificacion ? <ol className="lista-simple">{verificacion.controles.map((control) => <li key={control.nombre}>
@@ -572,8 +572,16 @@ export function Detalle({ actor }) {
         <EstadoTramite expediente={expediente} conformidad={conformidad} pagos={pagos} />
       </div>
       <AvisoNavegacion />
-      <div className="acciones"><a className="boton" href={`/api/expedientes/${expediente.id}/reporte`}>
-        <Download size={16} /> Reporte de trazabilidad (PDF)</a></div>
+      <div className="acciones">
+        <a className="boton" href={`/api/expedientes/${expediente.id}/reporte`}>
+          <Download size={16} /> Reporte de trazabilidad (PDF)</a>
+        {["abastecimiento", "tesoreria", "auditor"].includes(actor.rol) && <>
+          <Link className="boton" href={`/prevencion/${expediente.id}`}>
+            <ScanSearch size={16} /> Evaluación de proveedores</Link>
+          <Link className="boton" href={`/documentos/${expediente.id}`}>
+            <FileSearch size={16} /> Revisión documental</Link>
+        </>}
+      </div>
       <Siguiente actor={actor} expediente={expediente} conformidad={conformidad} entregables={entregables} pendientes={pendientes}
         alertas={alertas} pagos={pagos} verificacion={verificacion.datos} />
       <SeleccionProveedor expediente={expediente} seleccion={seleccion} entregables={entregables} actor={actor} recargar={recurso.recargar} />

@@ -26,8 +26,9 @@ from conforme.modelos import (
 from conforme.permisos import (
     ROLES_EVALUACION_LECTURA, Actor, PermisoDenegado, exigir_otra_persona, exigir_rol,
 )
+from conforme.adaptadores import obtener_fuentes
 from conforme.prevencion.esquemas import ruc_valido
-from conforme.proveedores import consolidado, dimensiones, fuentes
+from conforme.proveedores import consolidado, dimensiones
 from conforme.proveedores.dimensiones import DIMENSIONES, Contexto, Funcionario, Historial, Postor
 from conforme.reglas import motor
 
@@ -205,7 +206,7 @@ def obtener(sesion: Session, actor: Actor, expediente_id: int) -> dict:
         "puede_editar": puede_editar,
         "puede_revisar": puede_revisar,
         "bloqueo": bloqueo,
-        "fuentes_simuladas": fuentes.SIMULADO,
+        "fuentes_simuladas": obtener_fuentes().modo == "simulado",
     }
 
 
@@ -372,7 +373,7 @@ def _contexto(sesion: Session, expediente: Expediente, evaluador_id: int, postor
     if evaluador:
         funcionarios.append(Funcionario(evaluador.dni, f"{evaluador.nombres} {evaluador.apellidos}",
                                         "especialista de Abastecimiento que evalúa"))
-    sancionadas = fuentes.personas_de_empresas_sancionadas(hoy)
+    sancionadas = obtener_fuentes().personas_en_empresas_sancionadas(hoy)
     comparables = _comparables(sesion, expediente)
 
     def para(postor: ExpedientePostor) -> Contexto:
@@ -411,7 +412,8 @@ def analizar(sesion: Session, actor: Actor, expediente_id: int, *, postor_id: in
     objetivos = [p for p in postores if postor_id is None or p.id == postor_id]
     if not objetivos:
         raise ErrorValidacion("El posible proveedor no pertenece a este expediente.")
-    fichas = {p.id: fuentes.consultar(p.ruc, p.razon_social) for p in postores}
+    adaptador_fuentes = obtener_fuentes()
+    fichas = {p.id: adaptador_fuentes.consultar_empresa(p.ruc, p.razon_social) for p in postores}
     contexto_de = _contexto(sesion, expediente, evaluacion.evaluador_id, postores, fichas)
     ahora = _ahora()
     conteo = {"limpio": 0, "revisar": 0, "alerta": 0}

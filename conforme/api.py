@@ -363,6 +363,17 @@ def verificacion_pago(expediente_id: int, sesion: Sesion, actor: UsuarioActual):
     return repositorio.verificar_pago(sesion, actor, expediente_id)
 
 
+@router.get("/pagos/bandeja")
+def bandeja_pagos(sesion: Sesion, actor: UsuarioActual):
+    return repositorio.bandeja_pagos(sesion, actor)
+
+
+@router.get("/adaptadores")
+def estado_adaptadores(actor: UsuarioActual):
+    from conforme.adaptadores import estado_adaptadores as obtener_estado
+    return obtener_estado()
+
+
 @router.post("/expedientes/{expediente_id}/reevaluar")
 def reevaluar(expediente_id: int, sesion: Sesion, actor: UsuarioActual):
     return {"nuevas": repositorio.reevaluar(sesion, actor, expediente_id)}
