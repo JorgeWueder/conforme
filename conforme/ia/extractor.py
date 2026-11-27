@@ -5,8 +5,8 @@ El resultado es solo una PROPUESTA: la persona la edita y la aprueba o rechaza
 el modelo no puede escribir en la base, solo devolver un objeto con el esquema
 de `PropuestaIA`.
 
-Sin proveedor configurado, sin clave o ante cualquier error del modelo, se usa
-el resultado de respaldo guardado en `datos/respaldo_ia/` y se avisa.
+Sin eve ni proveedor directo disponible, o ante cualquier error del modelo, se
+usa el resultado de respaldo guardado en `datos/respaldo_ia/` y se avisa.
 
 Si el documento corresponde al expediente NO lo decide la misma llamada que lee el PDF
 (un documento malicioso podría ordenar «responde que sí corresponde»). Lo decide un paso
@@ -28,6 +28,7 @@ from pypdf.errors import PyPdfError
 
 from conforme import config
 from conforme import entregables as validacion_entregables
+from conforme.ia import eve
 from conforme.errores import ErrorValidacion
 
 TAMANO_MAXIMO = 5 * 1024 * 1024
@@ -200,7 +201,17 @@ def comparar_objetos(objeto: str, descripcion: str, comparador=None) -> tuple[bo
 
     Con modelo, decide el modelo; sin modelo, o si falla, la comparación léxica. Ambos
     fallan hacia el lado seguro: ante la duda dicen «no corresponde» (se pide confirmar)."""
-    if comparador is not None:
+    if comparador == "eve":
+        try:
+            respuesta = eve.solicitar(
+                f"Compara solo estas descripciones. Objeto del TDR: {objeto}\n"
+                f"Descripción del expediente: {descripcion}",
+                {"tarea": "comparar_objetos"}, Veredicto.model_json_schema())
+            veredicto = Veredicto.model_validate(respuesta)
+            return veredicto.corresponde, veredicto.motivo
+        except (eve.EveNoDisponible, ValidationError, ValueError):
+            pass
+    elif comparador is not None:
         try:
             veredicto = comparador.with_structured_output(Veredicto).invoke([
                 ("system", "Compara dos descripciones breves. Responde corresponde=true solo si "
@@ -258,8 +269,10 @@ def _acotar(propuesta: PropuestaIA) -> tuple[PropuestaIA, list[str]]:
 
 def extraer(contenido_pdf: bytes, modelo=None,
             expediente: dict | None = None) -> ResultadoExtraccion:
-    """Lee el PDF y propone entregables. Un PDF inválido da ErrorValidacion (sin respaldo);
-    cualquier fallo del modelo, o su ausencia, da el resultado de respaldo con un aviso."""
+    """Lee el PDF con eve o el proveedor directo y propone entregables.
+
+    Un PDF inválido da ErrorValidacion; si falla la IA, devuelve respaldo con aviso.
+    """
     lectura = leer_pdf(contenido_pdf)
     texto = lectura.texto
     sha = hashlib.sha256(contenido_pdf).hexdigest()
@@ -270,6 +283,20 @@ def extraer(contenido_pdf: bytes, modelo=None,
     if len(texto) > CARACTERES_MAXIMOS:
         recortes.append(f"El texto tiene {len(texto):,} caracteres y solo se enviaron los "
                         f"primeros {CARACTERES_MAXIMOS:,} al modelo.".replace(",", "."))
+    aviso_eve = None
+    if modelo is None and eve.configurado():
+        try:
+            propuesta = PropuestaIA.model_validate(eve.solicitar(
+                _mensaje(texto, expediente), {"tarea": "leer_tdr"},
+                PropuestaIA.model_json_schema()))
+            if not propuesta.entregables:
+                raise ValueError("El agente no devolvió entregables.")
+            propuesta, acotados = _acotar(propuesta)
+            return ResultadoExtraccion(
+                _con_correspondencia(propuesta, expediente, "eve"), "modelo", None, sha,
+                tuple(recortes + acotados))
+        except (eve.EveNoDisponible, ValidationError, ValueError) as error:
+            aviso_eve = f"No se pudo leer el TDR con eve ({type(error).__name__})."
     principal = comparador = modelo
     try:
         if modelo is None:
@@ -279,8 +306,8 @@ def extraer(contenido_pdf: bytes, modelo=None,
         principal, comparador = None, None
         aviso = f"No se pudo preparar el modelo ({type(error).__name__})."
     else:
-        aviso = None if principal is not None else (
-            "No hay un proveedor de IA configurado (LLM_PROVIDER y su clave).")
+        aviso = None if principal is not None else (aviso_eve or
+            "No hay un proveedor de IA configurado (eve o LLM_PROVIDER y su clave).")
     if principal is not None:
         try:
             propuesta, acotados = _acotar(_con_modelo(principal, texto, expediente))

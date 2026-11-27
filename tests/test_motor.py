@@ -57,9 +57,12 @@ def test_reevaluar_desde_el_repositorio(sesion_sembrada):
 
 def test_una_alerta_cerrada_no_se_reabre_ni_se_duplica(sesion_sembrada):
     oci = actor_de(sesion_sembrada, "oci1")
+    tes = actor_de(sesion_sembrada, "tes1")
+    dec = actor_de(sesion_sembrada, "dec2")
     exp = _estrella(sesion_sembrada, oci)
     for a in repositorio.listar_alertas(sesion_sembrada, oci, expediente_id=exp["id"]):
-        repositorio.cerrar_alerta(sesion_sembrada, oci, a["id"], "Revisado en la prueba.")
+        revisor = dec if a["ambito"] == "preventiva_dec" else tes
+        repositorio.cerrar_alerta(sesion_sembrada, revisor, a["id"], "Revisado en la prueba.")
     assert motor.sincronizar(sesion_sembrada, [exp["id"]]) == []
     alertas = repositorio.listar_alertas(sesion_sembrada, oci, expediente_id=exp["id"])
     assert [a["estado"] for a in alertas] == ["cerrada"] * 2

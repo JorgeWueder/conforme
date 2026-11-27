@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { useDatos } from "./api";
 import { ESTADOS, SEMAFOROS, SEVERIDADES } from "./dominio";
+import { useSesion } from "./sesion";
 import { Carga, Encabezado, Indicador } from "./ui";
 
 function Cifra({ titulo, valor, ayuda, to }) {
@@ -28,7 +29,9 @@ function Barras({ titulo, datos, nombres = {}, tonos = {} }) {
 }
 
 export function Indicadores() {
+  const { actor } = useSesion();
   const recurso = useDatos("/indicadores");
+  const integridad = useDatos(actor?.rol === "auditor" ? "/integridad" : null);
   const d = recurso.datos;
   if (!d) return <><Encabezado titulo="Indicadores" /><Carga recurso={recurso} /></>;
   return (
@@ -45,6 +48,11 @@ export function Indicadores() {
         <Cifra titulo="Devueltas" valor={d.devueltos} />
         <Cifra titulo="Por pagar" valor={d.por_pagar} ayuda="Con conformidad y sin pago registrado" />
         <Cifra titulo="Alertas" valor={d.alertas} to="/alertas" />
+        {integridad.datos && <>
+          <Cifra titulo="Conflictos bloqueantes" valor={integridad.datos.conflictos_bloqueantes} to="/integridad" />
+          <Cifra titulo="Revisiones independientes pendientes" valor={integridad.datos.revisiones_pendientes} to="/integridad" />
+          <Cifra titulo="Seguimientos OCI abiertos" valor={integridad.datos.seguimiento_abierto} to="/integridad" />
+        </>}
       </div>
       <div className="rejilla dos">
         <Barras titulo="Expedientes por semáforo" datos={d.por_semaforo} nombres={SEMAFOROS}

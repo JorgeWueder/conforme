@@ -11,6 +11,7 @@ export const rutaEvaluacion = (id) => `/prevencion/${id}`;
 
 const VISTAS = {
   atender: { titulo: "Por atender", ayuda: "Lo que te toca hacer hoy", tono: "neutro" },
+  tdr: { titulo: "TDR", ayuda: "Requerimientos por revisar o con observaciones", tono: "ambar" },
   analizar: { titulo: "En evaluación", ayuda: "Proveedores por analizar, consolidar o seleccionar", tono: "neutro" },
   observadas: { titulo: "Observadas", ayuda: "La revisión independiente pidió cambios", tono: "ambar" },
   revision: { titulo: "En revisión independiente", ayuda: "Esperan la revisión de otro especialista", tono: "ambar" },
@@ -18,6 +19,7 @@ const VISTAS = {
 };
 
 function vistaDe(fila) {
+  if (["requerimiento", "tdr_observado"].includes(fila.estado_flujo)) return "tdr";
   if (fila.estado_flujo === "pendiente_revision_independiente") return "revision";
   if (fila.estado_flujo === "en_evaluacion_proveedores") {
     return fila.estado_revision_independiente === "observada" ? "observadas" : "analizar";
@@ -28,6 +30,7 @@ function vistaDe(fila) {
 function meToca(fila, actor) {
   if (actor.rol !== "abastecimiento") return false;
   if (fila.me_toca_revisar) return true;
+  if (fila.estado_flujo === "requerimiento") return true;
   return fila.estado_flujo === "en_evaluacion_proveedores" && (fila.soy_evaluador || !fila.evaluador_id);
 }
 
@@ -40,6 +43,8 @@ function QueSigue({ fila, actor }) {
   const [texto, , tono] = ESTADOS_FLUJO[fila.estado_flujo] ?? [fila.estado_flujo, "", "neutro"];
   let detalle = null;
   if (fila.me_toca_revisar) detalle = "Te toca revisarla";
+  else if (fila.estado_flujo === "requerimiento") detalle = "Revisa el TDR";
+  else if (fila.estado_flujo === "tdr_observado") detalle = "Esperando respuesta del área";
   else if (fila.estado_flujo === "pendiente_revision_independiente") detalle = fila.soy_evaluador ? "La enviaste tú" : null;
   else if (fila.estado_revision_independiente === "observada") detalle = "Corrige lo observado";
   else if (fila.estado_flujo === "en_evaluacion_proveedores" && !fila.evaluador_id) detalle = "Nadie la ha iniciado";
@@ -64,7 +69,8 @@ export function BandejaEvaluaciones() {
   const visibles = filas && (vista ? porVista(vista) : filas);
   const columnas = [
     { titulo: "Expediente", valor: (f) => f.codigo, render: (f) => <>
-      <Link className="codigo-expediente" href={rutaEvaluacion(f.id)}>{f.codigo}</Link>
+      <Link className="codigo-expediente" href={["requerimiento", "tdr_observado"].includes(f.estado_flujo)
+        ? `/expedientes/${f.id}/tdr` : rutaEvaluacion(f.id)}>{f.codigo}</Link>
       <small className="dato-tabla">Requerido el {fecha(f.fecha_requerimiento)}</small>
     </> },
     { titulo: "Qué se compra", valor: (f) => f.descripcion, clase: "celda-texto prestacion", render: (f) => <>
@@ -92,7 +98,7 @@ export function BandejaEvaluaciones() {
             return p;
           }, { replace: true })} opciones={[
             ...(esDec ? [{ clave: "atender", ...VISTAS.atender, valor: filas ? porVista("atender").length : "…" }] : []),
-            ...["analizar", "observadas", "revision", "aprobadas"].map((clave) => ({
+            ...["tdr", "analizar", "observadas", "revision", "aprobadas"].map((clave) => ({
               clave, ...VISTAS[clave], valor: filas ? porVista(clave).length : "…",
             })),
             { clave: "todas", titulo: "Todas", valor: filas?.length ?? "…" },
@@ -100,7 +106,8 @@ export function BandejaEvaluaciones() {
         </div>
         {visibles ? <>
           <Tabla columnas={columnas} filas={visibles} etiqueta="Evaluaciones de proveedores"
-            alElegir={(fila) => navegar(rutaEvaluacion(fila.id))}
+            alElegir={(fila) => navegar(["requerimiento", "tdr_observado"].includes(fila.estado_flujo)
+              ? `/expedientes/${fila.id}/tdr` : rutaEvaluacion(fila.id))}
             vacio={vista === "atender" ? "No tienes evaluaciones pendientes. ¡Todo al día!" : "No hay evaluaciones en esta vista."} />
           <p className="registro-pie" aria-live="polite">{visibles.length} de {filas.length} evaluaciones</p>
         </> : <div className="registro-pie"><Carga recurso={recurso} /></div>}

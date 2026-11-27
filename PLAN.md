@@ -132,6 +132,8 @@ Endurece la etapa posterior a la orden para que el sistema verifique de verdad q
   1. **Enrutamiento exacto:** matriz clara de destinatario principal, roles con visibilidad en solo lectura y acciones permitidas por cada alerta (cuidando no alertar de investigaciones internas a la persona sospechosa/implicada).
   2. **Evaluación de envío por correo:** analizar en qué casos tiene sentido notificar por correo (ej. bloqueos críticos, derivaciones pendientes de Revisión independiente o escalamientos a OCI) frente a cuáles deben quedarse solo en la bandeja interna (para evitar spam o exposición de información sensible), implementándolo inicialmente tras un adaptador mock de notificaciones.
 
+**Decisión de fase 6:** Tesorería resuelve las alertas operativas, otro especialista DEC resuelve las preventivas y OCI resuelve únicamente sus alertas de seguimiento. El Área usuaria ve las alertas de sus expedientes y presenta descargos cuando corresponde. Todos los cierres y escalamientos rechazan a la persona implicada. Los escalamientos operativos y preventivos abren una alerta OCI separada y no levantan el bloqueo original. Por ahora se usa la bandeja interna: el adaptador mock registra en bitácora el aviso de escalamiento a OCI, sin enviar correo. Se pospone el correo hasta contar con destinatarios institucionales verificados y reglas para no exponer investigaciones.
+
 ---
 
 ## 4. Flujo de extremo a extremo y compuertas bloqueantes

@@ -138,7 +138,9 @@ def test_flujo_y_permisos_de_la_revision_documental(laboratorio):
                                    mime="application/x-msdownload", contenido=b"MZ")
     documentos.subir_documento(s, dec1, otro, postor_otro, tipo="certificado", nombre_archivo="certificado.pdf",
                                mime="application/pdf", contenido=contenido)
-    documentos.analizar(s, oci1, otro)
+    with pytest.raises(PermisoDenegado):
+        documentos.analizar(s, oci1, otro)
+    documentos.analizar(s, dec1, otro)
     coherencia = documentos.obtener(s, dec1, otro)["revision"]["resultados"]["coherencia"]
     assert any("idéntico a un archivo de" in h["que"] for h in coherencia["hallazgos"])
     assert documentos.obtener(s, dec1, exp_id)["documentos_cambiaron"] is False

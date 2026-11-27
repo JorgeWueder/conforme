@@ -12,6 +12,7 @@ from PIL import Image
 from sqlalchemy import text
 
 from conforme import config, repositorio, sello
+from conforme.errores import ErrorValidacion
 from datos import caso_estrella
 from tests.conftest import actor_de
 from tests.test_conformidad import _pendiente, _registrar
@@ -202,11 +203,13 @@ def test_lo_que_ocurre_despues_del_sello_no_lo_invalida(sesion_sembrada):
     s = sesion_sembrada
     exp, conformidad = _estrella(s)
     tes1, oci1 = actor_de(s, "tes1"), actor_de(s, "oci1")
-    repositorio.registrar_pago(s, tes1, exp["id"], fecha_pago=exp["fecha_orden"] + timedelta(days=100),
-                               monto="1000.00")
+    # Un expediente histórico no supera los nuevos controles de pago.
+    with pytest.raises(ErrorValidacion, match="Pago bloqueado"):
+        repositorio.registrar_pago(s, tes1, exp["id"], fecha_pago=exp["fecha_orden"] + timedelta(days=100),
+                                   monto="1000.00")
     repositorio.reevaluar(s, tes1, exp["id"])
     alerta = repositorio.listar_alertas(s, oci1, expediente_id=exp["id"])[0]
-    repositorio.cerrar_alerta(s, oci1, alerta["id"], "Revisada")
+    repositorio.cerrar_alerta(s, tes1, alerta["id"], "Revisada")
     assert repositorio.consultar_sello(s, conformidad["codigo_sello"])["integra"]
 
 

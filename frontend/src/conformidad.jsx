@@ -10,12 +10,8 @@ import { Aviso, Campo, Carga, Encabezado, EstadoAccion, InsigniaIA, Volver } fro
 const diasEntre = (desde, hasta) => Math.round((Date.parse(hasta) - Date.parse(desde)) / 86_400_000);
 const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
 
-function revisionPrevia({ entregables, estado, observaciones, entrega, fechaConformidad, penalidad, calculo }) {
+function revisionPrevia({ entrega, fechaConformidad, penalidad, calculo }) {
   const avisos = [];
-  const sinEvidencia = entregables.filter(({ id }) => estado[id].cumplido && !estado[id].archivos && !observaciones.has(id));
-  if (sinEvidencia.length) {
-    avisos.push(["R1", `${plural(sinEvidencia.length, "entregable cumplido", "entregables cumplidos")} sin evidencia: n.º ${sinEvidencia.map((e) => e.numero).join(", ")}.`]);
-  }
   if (calculo && calculo.dias_atraso > 0
       && Number(calculo.penalidad_esperada) - Number(penalidad || 0) > Number(calculo.tolerancia)) {
     avisos.push(["R2", `Hay ${plural(calculo.dias_atraso, "día de atraso", "días de atraso")}. Penalidad estimada si corresponde: ${soles(calculo.penalidad_esperada)}.`]);
@@ -29,7 +25,7 @@ function revisionPrevia({ entregables, estado, observaciones, entrega, fechaConf
   return avisos;
 }
 
-function Formulario({ expediente, entregables, observaciones }) {
+function Formulario({ expediente, entregables, observaciones, version = 1 }) {
   const [entregaEditada, setEntrega] = useState(hoy());
   const [fechaConformidad, setFechaConformidad] = useState(hoy());
   const [penalidad, setPenalidad] = useState("0");
@@ -37,6 +33,7 @@ function Formulario({ expediente, entregables, observaciones }) {
     entregables.map(({ id }) => [id, { resultado: "", archivos: 0, fotos: 0 }]),
   ));
   const entrega = expediente.fecha_entrega_real ?? entregaEditada;
+  const observacionesActivas = new Map([...observaciones].filter(([, registro]) => !registro.subsanacion));
   const calculo = useDatos(entrega ? `/expedientes/${expediente.id}/penalidad?entrega=${entrega}` : null).datos;
   const accion = useAccion();
   const navegar = useNavegar();
@@ -46,15 +43,17 @@ function Formulario({ expediente, entregables, observaciones }) {
     ...e, cumplido: e.resultado === "cumplido", archivos: e.archivos + e.fotos,
   }]));
   const avisos = revisionPrevia({
-    entregables, estado: estadoConTotal, observaciones, entrega, fechaConformidad, penalidad, calculo,
+    entrega, fechaConformidad, penalidad, calculo,
   });
   const fechaInvalida = entrega && fechaConformidad && fechaConformidad < entrega;
   const sinVerificar = entregables.filter(({ id }) => !estado[id].resultado).length;
   const faltaEvidenciaSubsanacion = entregables.some(({ id }) => (
-    observaciones.has(id) && estadoConTotal[id].cumplido && !estadoConTotal[id].archivos
+    observacionesActivas.has(id) && estadoConTotal[id].cumplido && !estadoConTotal[id].archivos
   ));
-  const observacionesSinResolver = [...observaciones.keys()].filter((id) => estado[id].resultado === "no_cumplido").length;
-  const revisionPendiente = sinVerificar || faltaEvidenciaSubsanacion || observacionesSinResolver;
+  const faltaEvidencia = entregables.some(({ id }) => estadoConTotal[id].cumplido && !estadoConTotal[id].archivos);
+  const requiereSustento = Boolean(calculo && Number(penalidad || 0) + Number(calculo.tolerancia) < Number(calculo.penalidad_esperada));
+  const observacionesSinResolver = [...observacionesActivas.keys()].filter((id) => estado[id].resultado === "no_cumplido").length;
+  const revisionPendiente = sinVerificar || faltaEvidencia || observacionesSinResolver;
 
   function registrar(evento) {
     evento.preventDefault();
@@ -70,13 +69,19 @@ function Formulario({ expediente, entregables, observaciones }) {
     });
     data.set("datos", JSON.stringify({
       fecha_conformidad: form.get("fecha_conformidad"), fecha_entrega_real: form.get("fecha_entrega_real"),
-      penalidad_aplicada: form.get("penalidad_aplicada"), observaciones: form.get("observaciones"), items,
+      penalidad_aplicada: form.get("penalidad_aplicada"),
+      sustento_penalidad: form.get("sustento_penalidad") || "",
+      tipo_sustento_penalidad: form.get("tipo_sustento_penalidad") || null,
+      referencia_sustento_penalidad: form.get("referencia_sustento_penalidad") || "",
+      observaciones: form.get("observaciones"), items,
     }));
     accion.ejecutar(async () => {
-      const { alertas } = await api(`/expedientes/${expediente.id}/conformidad`, { method: "POST", data });
+      const { alertas, advertencias_evidencia: advertencias } = await api(
+        `/expedientes/${expediente.id}/conformidad`, { method: "POST", data });
       navegar(rutaExpediente(expediente.id), { state: {
-        aviso: alertas ? `Conformidad registrada. El expediente tiene ${alertas} alertas.`
-          : "Conformidad registrada. No se generaron alertas.",
+        aviso: `Conformidad v${version} enviada a Abastecimiento.`
+          + (alertas ? ` El expediente tiene ${alertas} alertas.` : "")
+          + (advertencias ? ` Hay ${advertencias} señales en las evidencias por revisar.` : ""),
       } });
     });
   }
@@ -105,6 +110,22 @@ function Formulario({ expediente, entregables, observaciones }) {
                 penalidad estimada <strong>{soles(esperada)}</strong> si el atraso es imputable al proveedor.</p>
             </div>
           ) : <p className="secundario">Entrega dentro del plazo (fecha límite {fecha(calculo.fecha_limite)}). No corresponde penalidad.</p>)}
+          {requiereSustento && <div className="rejilla dos">
+            <Campo titulo="Motivo de la penalidad menor">
+              <select name="tipo_sustento_penalidad" defaultValue="" required>
+                <option value="" disabled>Selecciona el motivo</option>
+                <option value="ampliacion">Ampliación aprobada</option>
+                <option value="no_imputable">Causa no imputable al proveedor</option>
+              </select>
+            </Campo>
+            <Campo titulo="Referencia del sustento formal">
+              <input name="referencia_sustento_penalidad" minLength={8} maxLength={120}
+                placeholder="Ej. Resolución o informe N.º ..." required />
+            </Campo>
+            <Campo titulo="Explicación" ayuda="Describe cómo el documento sustenta el importe aplicado.">
+              <textarea name="sustento_penalidad" minLength={20} maxLength={2000} required />
+            </Campo>
+          </div>}
         </section>
 
         <section className="seccion">
@@ -113,11 +134,12 @@ function Formulario({ expediente, entregables, observaciones }) {
           <div className="tarjetas">
             {entregables.map((item) => {
               const { resultado, cumplido, archivos } = estadoConTotal[item.id];
-              const observacion = observaciones.get(item.id);
+              const observacion = observacionesActivas.get(item.id);
               const subsanacion = observacion && cumplido;
               return (
                 <fieldset className="panel formulario" key={item.id}>
                   <legend>{item.numero}. {item.descripcion}</legend>
+                  {item.criterio_evidencia && <p className="secundario"><strong>Evidencia exigida:</strong> {item.criterio_evidencia}</p>}
                   {observacion && <Aviso tipo="advertencia">{observacion.detalle.resumen}</Aviso>}
                   <Campo titulo={`Resultado del entregable ${item.numero}`}>
                     <select name={`resultado-${item.id}`} required value={resultado}
@@ -139,7 +161,7 @@ function Formulario({ expediente, entregables, observaciones }) {
                     : resultado === "no_cumplido" ? "Motivo del incumplimiento" : "Observación (opcional)"}>
                     <input name={`observacion-${item.id}`} required={Boolean(subsanacion)} /></Campo>
                   {cumplido && !archivos && <small className="texto-ambar"><CircleAlert size={14} />
-                    {subsanacion ? "Adjunta la evidencia de la subsanación." : "Falta evidencia. Se generará la alerta R1."}
+                    {subsanacion ? "Adjunta la evidencia de la subsanación." : "Adjunta evidencia para guardar la conformidad."}
                   </small>}
                   {cumplido && archivos > 0 && <small className="texto-verde"><CircleCheck size={14} /> {plural(archivos, "archivo", "archivos")} listo{archivos === 1 ? "" : "s"}.</small>}
                 </fieldset>
@@ -154,6 +176,7 @@ function Formulario({ expediente, entregables, observaciones }) {
           <h2>3. Antes de guardar</h2>
           {sinVerificar > 0 && <p>Indica el resultado de {plural(sinVerificar, "entregable pendiente", "entregables pendientes")}.</p>}
           {faltaEvidenciaSubsanacion && <p>Adjunta los archivos de subsanación para guardar.</p>}
+          {faltaEvidencia && <p>Todo entregable cumplido necesita evidencia antes de guardar.</p>}
           {observacionesSinResolver > 0 && <p>Observaciones que quedarán pendientes ({observacionesSinResolver}).</p>}
           {avisos.length ? <>
             <p>Alertas previstas ({avisos.length})</p>
@@ -162,8 +185,8 @@ function Formulario({ expediente, entregables, observaciones }) {
         </section>
 
         <EstadoAccion accion={accion} />
-        <div><button className="primario" disabled={accion.pendiente || fechaInvalida || faltaEvidenciaSubsanacion}>
-          {accion.pendiente ? "Guardando…" : "Guardar conformidad"}</button></div>
+        <div><button className="primario" disabled={accion.pendiente || fechaInvalida || revisionPendiente}>
+          {accion.pendiente ? "Guardando…" : version > 1 ? `Emitir conformidad v${version}` : "Guardar conformidad"}</button></div>
       </form>
     </>
   );
@@ -182,12 +205,19 @@ export function Conformidad() {
         <p className="secundario">{expediente.proveedor} · {soles(expediente.monto)} · Plazo de {expediente.plazo_dias} días
           · Fecha límite {fecha(recurso.datos.fecha_limite)}</p>
         {!tieneOrden(expediente) ? <Aviso tipo="advertencia">Este expediente aún no tiene orden: la conformidad se registra cuando el proveedor ya ejecutó la prestación.</Aviso>
-          : expediente.tiene_conformidad ? <Aviso>Este expediente ya tiene una conformidad registrada.</Aviso>
+          : expediente.tiene_conformidad && recurso.datos.conformidad?.estado_revision_dec !== "devuelta"
+            ? <Aviso>Este expediente ya tiene una conformidad vigente.</Aviso>
           : !recurso.datos.entregables.length ? <Aviso tipo="advertencia">
             Faltan los entregables del expediente. <Link href={`${rutaExpediente(id)}/tdr`}>Revisar TDR <InsigniaIA /></Link>
           </Aviso>
-          : <Formulario key={id} expediente={expediente} entregables={recurso.datos.entregables}
-            observaciones={observacionesDeEntrega(recurso.datos.eventos)} />}
+          : <><Aviso tipo="advertencia">{recurso.datos.conformidad?.estado_revision_dec === "devuelta"
+              ? `Abastecimiento devolvió la v${recurso.datos.conformidad.version}: ${recurso.datos.conformidad.motivo_revision_dec}`
+              : "Adjunta evidencia para cada entregable cumplido."}</Aviso>
+          <Formulario key={id} expediente={expediente} entregables={recurso.datos.entregables}
+            version={recurso.datos.conformidad?.estado_revision_dec === "devuelta"
+              ? recurso.datos.conformidad.version + 1 : 1}
+            observaciones={observacionesDeEntrega(recurso.datos.eventos)} />
+          </>}
       </> : <Carga recurso={recurso} />}
     </>
   );

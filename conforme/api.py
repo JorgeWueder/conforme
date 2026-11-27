@@ -10,14 +10,15 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from conforme import (
-    auth, bitacora, db, entregables, evidencias, normativa, reporte, repositorio, sello,
+    auth, bitacora, db, entregables, evidencias, integridad, normativa, reporte, repositorio, sello,
 )
 from conforme.dependencias import (
     COOKIE, DURACION_SESION, FIRMADOR, Sesion, UsuarioActual, actor_actual, usuario_id,
 )
 from conforme.errores import ErrorValidacion
 from conforme.ia import extractor
-from conforme.modelos import ROL_AREA_USUARIA
+from conforme.ia import evidencias as revision_evidencias
+from conforme.modelos import ROL_ABASTECIMIENTO, ROL_AREA_USUARIA
 from conforme.permisos import Actor, exigir_rol
 from conforme.proveedores import repositorio as evaluacion_proveedores
 
@@ -159,6 +160,7 @@ def detalle_expediente(expediente_id: int, request: Request, sesion: Sesion, act
         "seleccion": evaluacion_proveedores.seleccion(sesion, actor, expediente_id),
         "plazo_maximo_conformidad": normativa.plazo_conformidad(expediente["conformidad_plazo_especial"]),
         "conformidad": conformidad,
+        "historial_conformidades": repositorio.historial_conformidades(sesion, actor, expediente_id),
         "entregables": repositorio.listar_entregables(sesion, actor, expediente_id),
         "alertas": repositorio.listar_alertas(sesion, actor, expediente_id=expediente_id),
         "reglas": normativa.NOMBRE_REGLA,
@@ -237,8 +239,23 @@ class Conformidad(BaseModel):
     fecha_conformidad: date
     fecha_entrega_real: date | None = None
     penalidad_aplicada: Decimal
+    sustento_penalidad: str = Field(default="", max_length=2000)
+    tipo_sustento_penalidad: Literal["ampliacion", "no_imputable"] | None = None
+    referencia_sustento_penalidad: str = Field(default="", max_length=120)
     observaciones: str = ""
     items: list[ItemConformidad]
+
+
+class CriterioEvidencia(BaseModel):
+    entregable_id: int
+    criterio_evidencia: str = Field(max_length=300)
+
+
+@router.post("/expedientes/{expediente_id}/criterios-evidencia", status_code=204)
+def guardar_criterios_evidencia(expediente_id: int, criterios: list[CriterioEvidencia],
+                               sesion: Sesion, actor: UsuarioActual):
+    repositorio.definir_criterios_evidencia(
+        sesion, actor, expediente_id, [c.model_dump() for c in criterios])
 
 
 class ObservacionEntrega(BaseModel):
@@ -273,6 +290,7 @@ class RevisionConformidad(BaseModel):
     favorable: bool
     motivo: str = Field(max_length=1000)
     referencia_derivacion: str = Field(default="", max_length=120)
+    advertencias_revisadas: bool = False
 
 
 @router.post("/expedientes/{expediente_id}/revision", status_code=204)
@@ -284,10 +302,20 @@ def revisar_conformidad(
 
 
 @router.post("/expedientes/{expediente_id}/conformidad", status_code=201)
-def registrar_conformidad(expediente_id: int, sesion: Sesion, actor: UsuarioActual,
-                          datos: Annotated[str, Form()], archivos: Annotated[list[UploadFile] | None, File()] = None):
-    exigir_rol(actor, ROL_AREA_USUARIA)
-    expediente_visible(sesion, actor, expediente_id)
+def registrar_conformidad(expediente_id: int, datos: Annotated[str, Form()],
+                          identificador: Annotated[int | None, Depends(usuario_id)],
+                          archivos: Annotated[list[UploadFile] | None, File()] = None):
+    # La lectura del modelo ocurre fuera de la transacción de PostgreSQL.
+    with db.sesion() as sesion:
+        actor = actor_actual(sesion, identificador)
+        exigir_rol(actor, ROL_AREA_USUARIA)
+        expediente = expediente_visible(sesion, actor, expediente_id)
+        lecturas = repositorio.listar_extracciones(sesion, actor, expediente_id)
+        aprobada = next((l for l in lecturas if l["estado"] == "aprobada" and
+                         l["origen"] == "modelo"), None)
+        contexto = {"codigo": expediente["codigo"], "descripcion": expediente["descripcion"],
+                    "entregables": repositorio.listar_entregables(sesion, actor, expediente_id),
+                    "tdr": aprobada["resultado"] if aprobada else None}
     try:
         formulario = Conformidad.model_validate_json(datos)
     except ValidationError as error:
@@ -301,17 +329,21 @@ def registrar_conformidad(expediente_id: int, sesion: Sesion, actor: UsuarioActu
         evidencia_item = []
         for _ in range(item.cantidad_archivos):
             archivo = next(restantes)
-            evidencia_item.append({
-                "nombre_archivo": archivo.filename or "evidencia",
-                "mime": archivo.content_type,
-                "contenido": leer_archivo(archivo, evidencias.TAMANO_MAXIMO),
-            })
+            evidencia_item.append(evidencias.preparar(
+                archivo.filename or "evidencia", archivo.content_type,
+                leer_archivo(archivo, evidencias.TAMANO_MAXIMO)))
         items.append({**item.model_dump(exclude={"cantidad_archivos"}), "evidencias": evidencia_item})
-    identificador = repositorio.registrar_conformidad(
-        sesion, actor, expediente_id, **formulario.model_dump(exclude={"items"}), items=items,
-    )
-    alertas = repositorio.listar_alertas(sesion, actor, expediente_id=expediente_id)
-    return {"id": identificador, "alertas": sum(alerta["vigente"] for alerta in alertas)}
+    verificacion = revision_evidencias.verificar(contexto, items)
+    with db.sesion() as sesion:
+        actor = actor_actual(sesion, identificador)
+        identificador_conformidad = repositorio.registrar_conformidad(
+            sesion, actor, expediente_id, **formulario.model_dump(exclude={"items"}),
+            items=items, verificacion_ia=verificacion,
+        )
+        alertas = repositorio.listar_alertas(sesion, actor, expediente_id=expediente_id)
+        cantidad_alertas = sum(alerta["vigente"] for alerta in alertas)
+    return {"id": identificador_conformidad, "alertas": cantidad_alertas,
+            "advertencias_evidencia": len(verificacion["hallazgos"])}
 
 
 class Pago(BaseModel):
@@ -326,6 +358,11 @@ def registrar_pago(expediente_id: int, datos: Pago, sesion: Sesion, actor: Usuar
     return {"id": repositorio.registrar_pago(sesion, actor, expediente_id, **datos.model_dump())}
 
 
+@router.get("/expedientes/{expediente_id}/verificacion-pago")
+def verificacion_pago(expediente_id: int, sesion: Sesion, actor: UsuarioActual):
+    return repositorio.verificar_pago(sesion, actor, expediente_id)
+
+
 @router.post("/expedientes/{expediente_id}/reevaluar")
 def reevaluar(expediente_id: int, sesion: Sesion, actor: UsuarioActual):
     return {"nuevas": repositorio.reevaluar(sesion, actor, expediente_id)}
@@ -333,7 +370,25 @@ def reevaluar(expediente_id: int, sesion: Sesion, actor: UsuarioActual):
 
 @router.get("/alertas")
 def listar_alertas(sesion: Sesion, actor: UsuarioActual):
-    return {"alertas": repositorio.listar_alertas(sesion, actor), "reglas": normativa.NOMBRE_REGLA}
+    return {"alertas": repositorio.listar_alertas(sesion, actor),
+            "reglas": {**normativa.NOMBRE_REGLA, "OCI": "Seguimiento del OCI"}}
+
+
+@router.get("/integridad")
+def panel_integridad(sesion: Sesion, actor: UsuarioActual):
+    return integridad.panel(sesion, actor)
+
+
+class ActuacionOCI(BaseModel):
+    entidad: Literal["expediente", "revision_previa", "conflicto_interes"]
+    entidad_id: int = Field(gt=0)
+    tipo: Literal["observacion_seguimiento", "requerimiento_info", "recomendacion", "alerta_seguimiento"]
+    descripcion: str = Field(min_length=15, max_length=2000)
+
+
+@router.post("/integridad/actuaciones", status_code=201)
+def registrar_actuacion_oci(datos: ActuacionOCI, sesion: Sesion, actor: UsuarioActual):
+    return {"id": integridad.registrar_actuacion(sesion, actor, **datos.model_dump())}
 
 
 @router.get("/alertas/{alerta_id}/revisiones")
@@ -406,7 +461,7 @@ def ejemplo_ia(actor: UsuarioActual):
 
 @router.get("/expedientes/{expediente_id}/lecturas")
 def listar_lecturas(expediente_id: int, sesion: Sesion, actor: UsuarioActual):
-    exigir_rol(actor, ROL_AREA_USUARIA)
+    exigir_rol(actor, ROL_AREA_USUARIA, ROL_ABASTECIMIENTO)
     expediente = expediente_visible(sesion, actor, expediente_id)
     existentes = repositorio.listar_entregables(sesion, actor, expediente_id)
     lecturas = repositorio.listar_extracciones(sesion, actor, expediente_id)
@@ -417,7 +472,32 @@ def listar_lecturas(expediente_id: int, sesion: Sesion, actor: UsuarioActual):
             pendiente["origen"], [item["descripcion"] for item in existentes],
         )
     return {"expediente": expediente, "entregables": existentes, "lecturas": lecturas,
+            "observaciones": repositorio.listar_observaciones_tdr(sesion, actor, expediente_id),
+            "tdr": repositorio.estado_tdr(sesion, actor, expediente_id),
             "hay_ejemplo": extractor.PDF_EJEMPLO.is_file()}
+
+
+class ObservacionTdr(BaseModel):
+    detalle: str = Field(max_length=2000)
+    severidad: Literal["bloqueante", "advertencia"] = "bloqueante"
+
+
+@router.post("/expedientes/{expediente_id}/tdr/observaciones", status_code=204)
+def observar_tdr(expediente_id: int, datos: ObservacionTdr, sesion: Sesion, actor: UsuarioActual):
+    repositorio.registrar_observacion_tdr(sesion, actor, expediente_id, **datos.model_dump())
+
+
+class RespuestaTdr(BaseModel):
+    estado: Literal["corregida", "justificada"]
+    respuesta: str = Field(max_length=2000)
+
+
+@router.post("/expedientes/{expediente_id}/tdr/observaciones/{observacion_id}/responder",
+             status_code=204)
+def responder_tdr(expediente_id: int, observacion_id: int, datos: RespuestaTdr,
+                  sesion: Sesion, actor: UsuarioActual):
+    repositorio.responder_observacion_tdr(sesion, actor, expediente_id, observacion_id,
+                                         **datos.model_dump())
 
 
 @router.post("/expedientes/{expediente_id}/lecturas", status_code=201)

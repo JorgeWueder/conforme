@@ -84,5 +84,6 @@ def _sin_cache_de_verificacion(monkeypatch):
 def _sin_ia_real(monkeypatch):
     """Ninguna prueba debe llamar a un modelo de pago, aunque el .env tenga claves: los
     tests que necesitan un proveedor lo simulan con monkeypatch."""
-    for nombre in ("LLM_PROVIDER", "LLM_MODEL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+    for nombre in ("LLM_PROVIDER", "LLM_MODEL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+                   "CONFORME_EVE_URL", "CONFORME_EVE_TOKEN"):
         monkeypatch.delenv(nombre, raising=False)

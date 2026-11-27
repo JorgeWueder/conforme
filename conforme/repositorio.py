@@ -8,10 +8,10 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
-from conforme import bitacora, evidencias, sello
+from conforme import bitacora, evidencias, normativa, sello
 from conforme import entregables as validacion_entregables
 from conforme.errores import ErrorValidacion
 from conforme.ia.extractor import PropuestaIA
@@ -19,7 +19,8 @@ from conforme.modelos import (
     ESTADO_ABIERTA, ESTADO_CERRADA, ESTADO_CON_DESCARGO, ESTADO_ESCALADA,
     ROL_ABASTECIMIENTO, ROL_AREA_USUARIA, ROL_AUDITOR, ROL_TESORERIA,
     Alerta, AlertaRevision, Area, Bitacora, Conformidad, ConformidadEntregable,
-    Entregable, Evidencia, Expediente, ExtraccionIA, Pago, Persona, Proveedor,
+    Entregable, Evidencia, Expediente, ExtraccionIA, Pago, Persona, Proveedor, RevisionPrevia,
+    TdrObservacion, VerificacionPago, ConflictoInteres,
 )
 from conforme.normativa import R4_CLAVE_ANTERIOR, SEVERIDAD_ALTA, SEVERIDAD_MEDIA
 from conforme.permisos import Actor, PermisoDenegado, exigir_rol, filtro_expedientes
@@ -41,13 +42,15 @@ _CONFORMIDAD_DEVUELTA = "conformidad.devuelta"
 PLAZO_SUBSANACION_MAXIMO_DIAS = 30
 
 
-def _alertas_sin_cerrar(severidad: str):
+def _alertas_sin_cerrar(severidad: str, actor: Actor):
     return (
         select(func.count())
         .where(
             Alerta.expediente_id == Expediente.id,
             Alerta.severidad == severidad,
             Alerta.estado != ESTADO_CERRADA,
+            Alerta.ambito.in_(_ambitos_visibles(actor)),
+            Alerta.ambito != "seguimiento_oci",
             _ALERTA_VIGENTE,
         )
         .correlate(Expediente)
@@ -79,10 +82,12 @@ def _consulta_expedientes(actor: Actor):
         .scalar_subquery()
     )
     revision_dec = (
-        select(Bitacora.accion)
-        .where(Bitacora.expediente_id == Expediente.id,
-               Bitacora.accion.in_((_CONFORMIDAD_REVISADA, _CONFORMIDAD_DEVUELTA)))
-        .order_by(Bitacora.id.desc()).limit(1)
+        select(case(
+            (Conformidad.estado_revision_dec == "favorable", _CONFORMIDAD_REVISADA),
+            (Conformidad.estado_revision_dec == "devuelta", _CONFORMIDAD_DEVUELTA),
+            else_=None))
+        .where(Conformidad.expediente_id == Expediente.id, Conformidad.vigente)
+        .limit(1)
         .correlate(Expediente)
         .scalar_subquery()
     )
@@ -114,8 +119,8 @@ def _consulta_expedientes(actor: Actor):
             observaciones_pendientes.label("observaciones_pendientes"),
             sin_comunicar.label("observaciones_sin_comunicar"),
             revision_dec.label("revision_dec"),
-            _alertas_sin_cerrar(SEVERIDAD_ALTA).label("alertas_altas"),
-            _alertas_sin_cerrar(SEVERIDAD_MEDIA).label("alertas_medias"),
+            _alertas_sin_cerrar(SEVERIDAD_ALTA, actor).label("alertas_altas"),
+            _alertas_sin_cerrar(SEVERIDAD_MEDIA, actor).label("alertas_medias"),
         )
         .join(Area, Area.id == Expediente.area_id)
         .outerjoin(Proveedor, Proveedor.id == Expediente.proveedor_id)
@@ -360,7 +365,7 @@ def crear_requerimiento(
     expediente = Expediente(
         codigo=codigo, tipo=tipo, descripcion=descripcion, area_id=actor.area_id,
         proveedor_id=None, solicitante_id=actor.persona_id, numero_orden=None,
-        estado_flujo="en_evaluacion_proveedores",
+        estado_flujo="requerimiento",
         proyecto_referencia=proyecto or None, conformidad_plazo_especial=conformidad_plazo_especial,
         fecha_requerimiento=fecha_requerimiento, fecha_orden=None, fecha_inicio_prestacion=None,
         plazo_dias=plazo_dias, fecha_entrega_real=None, monto=monto, creado_en=datetime.now(timezone.utc),
@@ -382,8 +387,8 @@ def crear_requerimiento(
             "entregables": len(limpios), "postores": len(postores or []),
             "proyecto_referencia": proyecto or None, "origen_entregables": origen_entregables,
             "resumen": f"Requerimiento registrado con {len(limpios)} entregables y "
-                       f"{len(postores or [])} cotizaciones referenciales. Pasa a Abastecimiento "
-                       "para evaluar a los posibles proveedores.",
+                       f"{len(postores or [])} cotizaciones referenciales. Queda pendiente "
+                       "el análisis del TDR antes de evaluar proveedores.",
         },
     )
     return expediente.id
@@ -488,11 +493,11 @@ def comunicar_observacion(
 
 def revisar_conformidad(
     sesion: Session, actor: Actor, expediente_id: int, *, favorable: bool,
-    motivo: str, referencia_derivacion: str = "",
+    motivo: str, referencia_derivacion: str = "", advertencias_revisadas: bool = False,
 ) -> None:
     """Abastecimiento revisa la conformidad emitida: la deriva o la devuelve con motivo.
 
-    La derivación es una referencia simulada; el pago y el devengado siguen fuera de Conforme.
+    La derivación es una referencia simulada; el devengado sigue fuera de Conforme.
     """
     exigir_rol(actor, ROL_ABASTECIMIENTO)
     expediente = _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
@@ -500,15 +505,15 @@ def revisar_conformidad(
         Conformidad.expediente_id == expediente_id, Conformidad.vigente))
     if conformidad is None:
         raise ErrorValidacion("El expediente aún no tiene conformidad que revisar.")
-    if sesion.scalar(select(Bitacora.id).where(
-        Bitacora.expediente_id == expediente_id,
-        Bitacora.accion.in_((_CONFORMIDAD_REVISADA, _CONFORMIDAD_DEVUELTA)),
-    ).limit(1)):
+    if conformidad.estado_revision_dec != "pendiente":
         raise ErrorValidacion("La conformidad de este expediente ya fue revisada.")
     motivo = _texto_obligatorio(motivo, "El motivo")
     referencia = (referencia_derivacion or "").strip()
     if favorable and not referencia:
         raise ErrorValidacion("Indica la referencia de derivación (simulada) del expediente.")
+    hallazgos = (conformidad.verificacion_evidencias or {}).get("hallazgos") or []
+    if favorable and hallazgos and not advertencias_revisadas:
+        raise ErrorValidacion("Revisa las señales de los archivos antes de dar una opinión favorable.")
     conformidad.estado_revision_dec = "favorable" if favorable else "devuelta"
     conformidad.referencia_derivacion = referencia if favorable else None
     conformidad.motivo_revision_dec = motivo
@@ -521,6 +526,7 @@ def revisar_conformidad(
         entidad="conformidad", entidad_id=expediente_id, expediente_id=expediente_id,
         detalle={
             "favorable": favorable, "motivo": motivo,
+            "advertencias_revisadas": bool(hallazgos and advertencias_revisadas),
             "referencia_derivacion": referencia if favorable else None,
             "resumen": (f"Lista para derivar ({referencia}). {motivo}" if favorable
                         else f"Devuelta al área usuaria: {motivo}"),
@@ -531,15 +537,20 @@ def revisar_conformidad(
 def listar_entregables(sesion: Session, actor: Actor, expediente_id: int) -> list[dict]:
     """Entregables con su estado en la conformidad y sus evidencias (sin el contenido)."""
     _expediente_en_alcance(sesion, actor, expediente_id)
+    vigente_id = select(Conformidad.id).where(
+        Conformidad.expediente_id == expediente_id, Conformidad.vigente).scalar_subquery()
     entregables = [
         {**dict(f._mapping), "evidencias": []}
         for f in sesion.execute(
             select(
                 Entregable.id, Entregable.numero, Entregable.descripcion, Entregable.origen,
+                Entregable.criterio_evidencia,
                 ConformidadEntregable.id.label("conformidad_entregable_id"),
                 ConformidadEntregable.cumplido, ConformidadEntregable.observacion,
             )
-            .outerjoin(ConformidadEntregable, ConformidadEntregable.entregable_id == Entregable.id)
+            .outerjoin(ConformidadEntregable,
+                       (ConformidadEntregable.entregable_id == Entregable.id)
+                       & (ConformidadEntregable.conformidad_id == vigente_id))
             .where(Entregable.expediente_id == expediente_id)
             .order_by(Entregable.numero)
         )
@@ -559,6 +570,36 @@ def listar_entregables(sesion: Session, actor: Actor, expediente_id: int) -> lis
     return entregables
 
 
+def definir_criterios_evidencia(sesion: Session, actor: Actor, expediente_id: int,
+                                criterios: list[dict]) -> None:
+    """El área fija la evidencia mínima de cada entregable antes de emitir la orden."""
+    exigir_rol(actor, ROL_AREA_USUARIA)
+    expediente = _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
+    if expediente.numero_orden is not None:
+        raise ErrorValidacion("Los criterios de evidencia se fijan antes de emitir la orden.")
+    entregables = list(sesion.scalars(select(Entregable).where(
+        Entregable.expediente_id == expediente_id).order_by(Entregable.numero)))
+    por_id = {int(c["entregable_id"]): (c.get("criterio_evidencia") or "").strip()
+              for c in criterios}
+    if not entregables or len(por_id) != len(criterios) or set(por_id) != {e.id for e in entregables}:
+        raise ErrorValidacion("Indica el tipo de evidencia exigida para cada entregable.")
+    for e in entregables:
+        criterio = _texto_obligatorio(por_id[e.id], f"La evidencia exigida del entregable {e.numero}")
+        if len(criterio) < 15 or criterio.casefold() in {
+            "archivo", "documento", "evidencia", "informe", "foto", "pdf"}:
+            raise ErrorValidacion(
+                f"Precisa la evidencia exigida del entregable {e.numero} (por ejemplo, acta firmada y fotos).")
+        if len(criterio) > 300:
+            raise ErrorValidacion("Cada criterio de evidencia admite hasta 300 caracteres.")
+        e.criterio_evidencia = criterio
+    sesion.flush()
+    bitacora.registrar(sesion, actor_id=actor.persona_id, accion="tdr.criterios_evidencia",
+                      entidad="expediente", entidad_id=expediente_id, expediente_id=expediente_id,
+                      detalle={"criterios": [{"numero": e.numero, "evidencia": e.criterio_evidencia}
+                                             for e in entregables],
+                               "resumen": "Evidencia mínima definida para todos los entregables."})
+
+
 def obtener_conformidad(sesion: Session, actor: Actor, expediente_id: int) -> dict | None:
     _expediente_en_alcance(sesion, actor, expediente_id)
     fila = sesion.execute(
@@ -566,12 +607,25 @@ def obtener_conformidad(sesion: Session, actor: Actor, expediente_id: int) -> di
             Conformidad.id, Conformidad.conformante_id, _NOMBRE_PERSONA.label("conformante"),
             Conformidad.fecha_conformidad, Conformidad.observaciones,
             Conformidad.penalidad_aplicada, Conformidad.registrada_en,
+            Conformidad.version, Conformidad.estado_revision_dec,
+            Conformidad.referencia_derivacion, Conformidad.motivo_revision_dec,
+            Conformidad.sustento_penalidad, Conformidad.verificacion_evidencias,
             Conformidad.codigo_sello, Conformidad.sello_hash, Conformidad.sello_bitacora_id,
         )
         .join(Persona, Persona.id == Conformidad.conformante_id)
         .where(Conformidad.expediente_id == expediente_id, Conformidad.vigente)
     ).first()
     return dict(fila._mapping) if fila else None
+
+
+def historial_conformidades(sesion: Session, actor: Actor, expediente_id: int) -> list[dict]:
+    _expediente_en_alcance(sesion, actor, expediente_id)
+    return [dict(f._mapping) for f in sesion.execute(
+        select(Conformidad.id, Conformidad.version, Conformidad.vigente,
+               Conformidad.fecha_conformidad, Conformidad.estado_revision_dec,
+               Conformidad.motivo_revision_dec, Conformidad.codigo_sello)
+        .where(Conformidad.expediente_id == expediente_id)
+        .order_by(Conformidad.version))]
 
 
 def obtener_evidencia(sesion: Session, actor: Actor, evidencia_id: int) -> dict | None:
@@ -590,21 +644,23 @@ def obtener_evidencia(sesion: Session, actor: Actor, evidencia_id: int) -> dict 
 def registrar_conformidad(
     sesion: Session, actor: Actor, expediente_id: int, *, fecha_conformidad: date,
     penalidad_aplicada, items: list[dict], observaciones: str = "",
+    sustento_penalidad: str = "", tipo_sustento_penalidad: str | None = None,
+    referencia_sustento_penalidad: str = "",
     fecha_entrega_real: date | None = None,
+    verificacion_ia: dict | None = None,
 ) -> int:
-    """Registra la conformidad (una por expediente). Solo área usuaria.
+    """Registra la conformidad vigente o una nueva versión tras devolución de DEC.
 
     `items`: uno por entregable, con entregable_id, cumplido, observacion y
     evidencias (lista de dict con nombre_archivo, mime, contenido).
-    Se puede guardar con entregables sin evidencia: el sistema no bloquea,
-    alerta (R1). `fecha_entrega_real` solo se usa si el expediente no la tiene.
+    `fecha_entrega_real` solo se usa si el expediente no la tiene.
     """
     exigir_rol(actor, ROL_AREA_USUARIA)
     expediente = _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
     _exigir_orden(expediente)
-    if sesion.execute(
-        select(Conformidad.id).where(Conformidad.expediente_id == expediente.id)
-    ).first():
+    anterior = sesion.scalar(select(Conformidad).where(
+        Conformidad.expediente_id == expediente.id, Conformidad.vigente).with_for_update())
+    if anterior and anterior.estado_revision_dec != "devuelta":
         raise ErrorValidacion("Este expediente ya tiene una conformidad registrada.")
     entregables = sesion.execute(
         select(Entregable).where(Entregable.expediente_id == expediente.id)
@@ -624,6 +680,21 @@ def registrar_conformidad(
         raise ErrorValidacion("La entrega no puede ser anterior a la orden.")
     if fecha_conformidad < entrega:
         raise ErrorValidacion("La conformidad no puede tener fecha anterior a la entrega.")
+    dias_atraso = normativa.dias_de_atraso(
+        expediente.fecha_orden, expediente.plazo_dias, entrega,
+        expediente.fecha_inicio_prestacion)
+    esperada = normativa.penalidad_esperada(expediente.monto, expediente.plazo_dias, dias_atraso)
+    sustento_penalidad = (sustento_penalidad or "").strip()
+    referencia_sustento_penalidad = (referencia_sustento_penalidad or "").strip()
+    if penalidad + normativa.PENALIDAD_TOLERANCIA < esperada:
+        if tipo_sustento_penalidad not in ("ampliacion", "no_imputable"):
+            raise ErrorValidacion("Indica si hubo ampliación aprobada o causa no imputable al proveedor.")
+        if len(referencia_sustento_penalidad) < 8 or len(referencia_sustento_penalidad) > 120:
+            raise ErrorValidacion("Indica la referencia del documento formal que sustenta la penalidad menor.")
+        if len(sustento_penalidad) < 20:
+            raise ErrorValidacion("Explica el sustento de la penalidad menor a la estimada.")
+        sustento_penalidad = (f"{'Ampliación aprobada' if tipo_sustento_penalidad == 'ampliacion' else 'Causa no imputable'} "
+                              f"· {referencia_sustento_penalidad} · {sustento_penalidad}")
     # Se valida todo antes de escribir nada.
     archivos = {
         e.id: [evidencias.preparar(a["nombre_archivo"], a["mime"], a["contenido"])
@@ -631,6 +702,9 @@ def registrar_conformidad(
         for e in entregables
     }
     observados = _observaciones_de_entrega(sesion, expediente_id)
+    ya_subsanados = set(sesion.scalars(select(Bitacora.entidad_id).where(
+        Bitacora.expediente_id == expediente_id, Bitacora.accion == _ENTREGA_SUBSANADA)))
+    observados = {id_: evento for id_, evento in observados.items() if id_ not in ya_subsanados}
     comunicadas = set(sesion.scalars(select(Bitacora.entidad_id).where(
         Bitacora.expediente_id == expediente_id, Bitacora.accion == _OBSERVACION_COMUNICADA)))
     for e in entregables:
@@ -646,14 +720,49 @@ def registrar_conformidad(
     for e in entregables:
         if e.id in subsanados and (not archivos[e.id] or not (por_id[e.id].get("observacion") or "").strip()):
             raise ErrorValidacion(f"El entregable {e.numero} está observado. Adjunta la evidencia y describe qué verificaste.")
+    for e in entregables:
+        if por_id[e.id]["cumplido"] and not archivos[e.id]:
+            raise ErrorValidacion(f"El entregable {e.numero} figura cumplido: adjunta su evidencia.")
+
+    huellas = {a["sha256"] for lote in archivos.values() for a in lote}
+    reusadas = set(sesion.scalars(
+        select(Evidencia.sha256)
+        .join(ConformidadEntregable,
+              ConformidadEntregable.id == Evidencia.conformidad_entregable_id)
+        .join(Conformidad, Conformidad.id == ConformidadEntregable.conformidad_id)
+        .where(Evidencia.sha256.in_(huellas), Conformidad.expediente_id != expediente_id)))
+    hallazgos = []
+    for e in entregables:
+        for archivo in archivos[e.id]:
+            if archivo["sha256"] in reusadas:
+                hallazgos.append(f"Entregable {e.numero}: el archivo «{archivo['nombre_archivo']}» "
+                                 "ya se usó en otro expediente.")
+            fecha_archivo = evidencias.fecha_de_metadatos(archivo["mime"], archivo["contenido"])
+            if fecha_archivo and fecha_archivo < expediente.fecha_orden:
+                hallazgos.append(f"Entregable {e.numero}: «{archivo['nombre_archivo']}» "
+                                 f"declara fecha {fecha_archivo:%d/%m/%Y}, anterior a la orden.")
+        criterio = (e.criterio_evidencia or "").casefold()
+        if "foto" in criterio and not any(a["mime"].startswith("image/") for a in archivos[e.id]):
+            hallazgos.append(f"Entregable {e.numero}: se exigieron fotos y no se adjuntó una imagen.")
+        if "pdf" in criterio and not any(a["mime"] == "application/pdf" for a in archivos[e.id]):
+            hallazgos.append(f"Entregable {e.numero}: se exigió PDF y no se adjuntó uno.")
+    if verificacion_ia:
+        hallazgos.extend(verificacion_ia.get("hallazgos") or [])
 
     ahora = datetime.now(timezone.utc)
+    if anterior:
+        anterior.vigente = False
+        sesion.flush()
     expediente.fecha_entrega_real = entrega
     _cambiar_estado(expediente, "conformidad_emitida")
     conformidad = Conformidad(
         expediente_id=expediente.id, conformante_id=actor.persona_id,
         fecha_conformidad=fecha_conformidad, observaciones=(observaciones or "").strip(),
         penalidad_aplicada=penalidad, registrada_en=ahora,
+        sustento_penalidad=sustento_penalidad or None,
+        version=anterior.version + 1 if anterior else 1,
+        verificacion_evidencias={"estado": "integridad_verificada", "archivos": sum(map(len, archivos.values())),
+                                 "hallazgos": hallazgos, "coherencia_ia": verificacion_ia},
     )
     sesion.add(conformidad)
     sesion.flush()
@@ -664,8 +773,10 @@ def registrar_conformidad(
         "detalle": {
             "fecha_conformidad": fecha_conformidad, "fecha_entrega_real": entrega,
             "penalidad_aplicada": penalidad, "entregables": len(entregables),
+            "version": conformidad.version, "sustento_penalidad": sustento_penalidad or None,
             "entregables_cumplidos": cumplidos,
-            "resumen": f"{cumplidos} de {len(entregables)} entregables dados por cumplidos.",
+            "verificacion_ia": verificacion_ia,
+            "resumen": f"Conformidad v{conformidad.version}: {cumplidos} de {len(entregables)} entregables cumplidos.",
         },
     }]
     subsanaciones = []
@@ -706,7 +817,106 @@ def registrar_conformidad(
     return conformidad.id
 
 
-# --- F2: pagos ----------------------------------------------------------------
+# --- Fase 5: verificación previa al pago ---------------------------------------
+
+def verificar_pago(sesion: Session, actor: Actor, expediente_id: int,
+                   penalidad_descontada: Decimal | None = None) -> dict:
+    """Seis controles del expediente; el registro del pago vuelve a calcularlos bajo bloqueo."""
+    expediente = _expediente_en_alcance(sesion, actor, expediente_id)
+    controles = []
+
+    def agregar(nombre: str, correcto: bool, detalle: str, responsable: str):
+        controles.append({"nombre": nombre, "correcto": correcto, "detalle": detalle,
+                          "responsable": responsable})
+
+    evaluacion = sesion.scalar(select(RevisionPrevia).where(
+        RevisionPrevia.expediente_id == expediente_id))
+    proveedor = sesion.get(Proveedor, expediente.proveedor_id) if expediente.proveedor_id else None
+    seleccion_valida = bool(
+        evaluacion and evaluacion.estado_revision_independiente == "aprobada"
+        and evaluacion.evaluador_id and evaluacion.revisor_independiente_id
+        and evaluacion.evaluador_id != evaluacion.revisor_independiente_id
+        and proveedor and evaluacion.proveedor_seleccionado_ruc == proveedor.ruc)
+    agregar("Selección y revisión independiente", seleccion_valida,
+            "La selección del proveedor debe estar aprobada por otro especialista de Abastecimiento.",
+            "Abastecimiento")
+
+    observadas = set(sesion.scalars(select(Bitacora.entidad_id).where(
+        Bitacora.expediente_id == expediente_id, Bitacora.accion == _ENTREGA_OBSERVADA)))
+    subsanadas = set(sesion.scalars(select(Bitacora.entidad_id).where(
+        Bitacora.expediente_id == expediente_id, Bitacora.accion == _ENTREGA_SUBSANADA)))
+    sin_subsanar = len(observadas - subsanadas)
+    agregar("Observaciones de entrega", sin_subsanar == 0,
+            f"{sin_subsanar} observación(es) sin subsanar con evidencia.", "Área usuaria")
+
+    conformidad = sesion.scalar(select(Conformidad).where(
+        Conformidad.expediente_id == expediente_id, Conformidad.vigente))
+    entregables = list(sesion.scalars(select(Entregable).where(
+        Entregable.expediente_id == expediente_id)))
+    evidencias_ok = False
+    if conformidad and entregables:
+        filas = list(sesion.execute(select(
+            ConformidadEntregable.entregable_id, ConformidadEntregable.cumplido,
+            Evidencia.sha256, Evidencia.contenido)
+            .select_from(ConformidadEntregable)
+            .outerjoin(Evidencia, Evidencia.conformidad_entregable_id == ConformidadEntregable.id)
+            .where(ConformidadEntregable.conformidad_id == conformidad.id)))
+        por_entregable = {e.id: [] for e in entregables}
+        for f in filas:
+            por_entregable.setdefault(f.entregable_id, []).append(f)
+        evidencias_ok = all(
+            (e.criterio_evidencia or "").strip() and por_entregable[e.id]
+            and all(f.cumplido and f.sha256 and
+                    hashlib.sha256(bytes(f.contenido)).hexdigest() == f.sha256
+                    for f in por_entregable[e.id])
+            for e in entregables)
+        evidencias_ok = bool(evidencias_ok and conformidad.verificacion_evidencias
+                            and conformidad.verificacion_evidencias.get("estado") == "integridad_verificada")
+    sello_ok = bool(conformidad and conformidad.codigo_sello and
+                    (consultar_sello(sesion, conformidad.codigo_sello) or {}).get("integra"))
+    agregar("Conformidad, evidencias y sello", evidencias_ok and sello_ok,
+            "Cada entregable debe tener la evidencia exigida, íntegra y sellada.", "Área usuaria")
+
+    revision_ok = bool(conformidad and conformidad.estado_revision_dec == "favorable"
+                       and (conformidad.referencia_derivacion or "").strip())
+    agregar("Revisión y derivación de Abastecimiento", revision_ok,
+            "La conformidad vigente requiere revisión favorable y referencia de derivación.",
+            "Abastecimiento")
+
+    penalidad_ok = False
+    minima = Decimal("0.00")
+    if conformidad and expediente.fecha_entrega_real and expediente.fecha_orden:
+        atraso = normativa.dias_de_atraso(
+            expediente.fecha_orden, expediente.plazo_dias, expediente.fecha_entrega_real,
+            expediente.fecha_inicio_prestacion)
+        esperada = normativa.penalidad_esperada(expediente.monto, expediente.plazo_dias, atraso)
+        minima = conformidad.penalidad_aplicada
+        penalidad_ok = (conformidad.penalidad_aplicada + normativa.PENALIDAD_TOLERANCIA >= esperada
+                       or bool((conformidad.sustento_penalidad or "").strip()))
+        if penalidad_descontada is not None:
+            penalidad_ok = penalidad_ok and penalidad_descontada >= minima
+    agregar("Penalidad y sustento", penalidad_ok,
+            "Descuenta al menos la penalidad aplicada; si es menor a la estimada, exige sustento.",
+            "Área usuaria y Tesorería")
+
+    conflicto = sesion.scalar(select(ConflictoInteres.id).where(
+        ConflictoInteres.expediente_id == expediente_id, ConflictoInteres.bloqueante,
+        ConflictoInteres.estado.in_(("en_revision", "confirmado"))).limit(1))
+    alerta = sesion.scalar(select(Alerta.id).where(
+        Alerta.expediente_id == expediente_id, Alerta.estado != ESTADO_CERRADA,
+        Alerta.bloqueante, _ALERTA_VIGENTE).limit(1))
+    misma_persona = bool(conformidad and actor.rol == ROL_TESORERIA
+                        and conformidad.conformante_id == actor.persona_id)
+    agregar("Conflictos, alertas y separación de funciones", not (conflicto or alerta or misma_persona),
+            "Debe resolverse todo conflicto o alerta bloqueante; quien registra el pago "
+            "no puede ser quien emitió la conformidad.",
+            "Abastecimiento y Tesorería")
+    bloqueos = [c["nombre"] + ": " + c["detalle"] for c in controles if not c["correcto"]]
+    return {"controles": controles, "bloqueos": bloqueos, "apto": not bloqueos,
+            "penalidad_minima": str(minima)}
+
+
+# --- Pagos ---------------------------------------------------------------------
 
 def listar_pagos(sesion: Session, actor: Actor, expediente_id: int) -> list[dict]:
     _expediente_en_alcance(sesion, actor, expediente_id)
@@ -727,7 +937,7 @@ def registrar_pago(
     sesion: Session, actor: Actor, expediente_id: int, *, fecha_pago: date, monto,
     penalidad_descontada=0, referencia_siaf: str | None = None,
 ) -> int:
-    """Registra un pago. Solo tesorería. No se bloquea: si falta conformidad, alerta (R5)."""
+    """Registra un pago solo si los seis controles están aprobados."""
     exigir_rol(actor, ROL_TESORERIA)
     expediente = _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
     _exigir_orden(expediente)
@@ -738,10 +948,23 @@ def registrar_pago(
         raise ErrorValidacion("La referencia SIAF admite hasta 60 caracteres.")
     if fecha_pago < expediente.fecha_orden:
         raise ErrorValidacion("El pago no puede ser anterior a la orden.")
+    vigente = sesion.scalar(select(Conformidad.fecha_conformidad).where(
+        Conformidad.expediente_id == expediente_id, Conformidad.vigente))
+    if vigente and fecha_pago < vigente:
+        raise ErrorValidacion("La fecha del pago no puede ser anterior a la conformidad vigente.")
+    verificacion = verificar_pago(sesion, actor, expediente_id, penalidad)
+    if not verificacion["apto"]:
+        raise ErrorValidacion("Pago bloqueado. " + " ".join(verificacion["bloqueos"]))
+    control = VerificacionPago(
+        expediente_id=expediente_id, verificado_por=actor.persona_id,
+        checklist={"controles": verificacion["controles"]}, bloqueos_activos=[],
+        apto_para_pago=True, creado_en=datetime.now(timezone.utc))
+    sesion.add(control)
+    sesion.flush()
     pago = Pago(
         expediente_id=expediente.id, fecha_pago=fecha_pago, monto=monto,
         penalidad_descontada=penalidad, registrado_por=actor.persona_id,
-        referencia_siaf=referencia or None,
+        referencia_siaf=referencia or None, verificacion_pago_id=control.id,
         registrado_en=datetime.now(timezone.utc),
     )
     sesion.add(pago)
@@ -767,6 +990,13 @@ def reevaluar(sesion: Session, actor: Actor, expediente_id: int) -> int:
 
 # --- F2: alertas --------------------------------------------------------------
 
+def _ambitos_visibles(actor: Actor) -> tuple[str, ...]:
+    if actor.rol == ROL_AUDITOR:
+        return ("operativa_tesoreria", "preventiva_dec", "seguimiento_oci")
+    if actor.rol in (ROL_ABASTECIMIENTO, ROL_TESORERIA):
+        return ("operativa_tesoreria", "preventiva_dec")
+    return ("operativa_tesoreria", "preventiva_dec")
+
 def listar_alertas(
     sesion: Session, actor: Actor, *, expediente_id: int | None = None,
 ) -> list[dict]:
@@ -775,31 +1005,46 @@ def listar_alertas(
     consulta = (
         select(
             Alerta.id, Alerta.regla, Alerta.clave, Alerta.severidad, Alerta.explicacion,
-            Alerta.datos, Alerta.estado, Alerta.creada_en, Alerta.actualizada_en,
+            Alerta.datos, Alerta.estado, Alerta.ambito, Alerta.bloqueante,
+            Alerta.creada_en, Alerta.actualizada_en,
             Alerta.expediente_id, Expediente.codigo.label("expediente"),
             Expediente.tipo.label("tipo_prestacion"),
             Area.sigla.label("area_sigla"), Alerta.persona_implicada_id,
             _nombre(implicada).label("implicado"),
             Conformidad.conformante_id,
+            RevisionPrevia.evaluador_id,
             _ALERTA_VIGENTE.label("vigente"),
         )
         .join(Expediente, Expediente.id == Alerta.expediente_id)
         .join(Area, Area.id == Expediente.area_id)
         .outerjoin(implicada, implicada.id == Alerta.persona_implicada_id)
-        .outerjoin(Conformidad, Conformidad.expediente_id == Expediente.id)
-        .where(filtro_expedientes(actor))
+        .outerjoin(Conformidad, (Conformidad.expediente_id == Expediente.id) & Conformidad.vigente)
+        .outerjoin(RevisionPrevia, RevisionPrevia.expediente_id == Expediente.id)
+        .where(filtro_expedientes(actor), Alerta.ambito.in_(_ambitos_visibles(actor)))
     )
     if expediente_id is not None:
         consulta = consulta.where(Alerta.expediente_id == expediente_id)
     filas = sesion.execute(consulta.order_by(Alerta.creada_en.desc(), Alerta.id.desc()))
-    return [dict(f._mapping) for f in filas]
+    resultado = []
+    for f in filas:
+        datos = dict(f._mapping)
+        datos["puede_revisar"] = bool(
+            datos["persona_implicada_id"] != actor.persona_id and
+            ((actor.rol == ROL_TESORERIA and datos["ambito"] == "operativa_tesoreria") or
+             (actor.rol == ROL_AUDITOR and datos["ambito"] == "seguimiento_oci") or
+             (actor.rol == ROL_ABASTECIMIENTO and datos["ambito"] == "preventiva_dec" and
+              datos["evaluador_id"] != actor.usuario_id)))
+        datos.pop("evaluador_id")
+        resultado.append(datos)
+    return resultado
 
 
 def _alerta_en_alcance(sesion: Session, actor: Actor, alerta_id: int) -> Alerta:
     alerta = sesion.execute(
         select(Alerta)
         .join(Expediente, Expediente.id == Alerta.expediente_id)
-        .where(Alerta.id == alerta_id, filtro_expedientes(actor))
+        .where(Alerta.id == alerta_id, filtro_expedientes(actor),
+               Alerta.ambito.in_(_ambitos_visibles(actor)))
     ).scalar_one_or_none()
     if alerta is None:
         raise PermisoDenegado("Alerta inexistente o fuera de tu alcance.")
@@ -856,7 +1101,7 @@ def registrar_descargo(sesion: Session, actor: Actor, alerta_id: int, texto: str
     alerta = _alerta_en_alcance(sesion, actor, alerta_id)
     conformante_id = sesion.execute(
         select(Conformidad.conformante_id)
-        .where(Conformidad.expediente_id == alerta.expediente_id)
+        .where(Conformidad.expediente_id == alerta.expediente_id, Conformidad.vigente)
     ).scalar_one_or_none()
     if actor.persona_id not in (alerta.persona_implicada_id, conformante_id):
         raise PermisoDenegado(
@@ -869,11 +1114,18 @@ def registrar_descargo(sesion: Session, actor: Actor, alerta_id: int, texto: str
 
 
 def _exigir_revisor(sesion: Session, actor: Actor, alerta_id: int) -> Alerta:
-    exigir_rol(actor, ROL_TESORERIA, ROL_AUDITOR)
     alerta = _alerta_en_alcance(sesion, actor, alerta_id)
+    rol = {"operativa_tesoreria": ROL_TESORERIA, "preventiva_dec": ROL_ABASTECIMIENTO,
+           "seguimiento_oci": ROL_AUDITOR}[alerta.ambito]
+    exigir_rol(actor, rol)
     if alerta.persona_implicada_id == actor.persona_id:
         raise PermisoDenegado(
             "No puedes cerrar ni escalar una alerta en la que figuras como persona implicada.")
+    if alerta.ambito == "preventiva_dec":
+        evaluador = sesion.scalar(select(RevisionPrevia.evaluador_id).where(
+            RevisionPrevia.expediente_id == alerta.expediente_id))
+        if evaluador == actor.usuario_id:
+            raise PermisoDenegado("Otro especialista de Abastecimiento debe revisar esta alerta preventiva.")
     return alerta
 
 
@@ -893,6 +1145,26 @@ def escalar_alerta(sesion: Session, actor: Actor, alerta_id: int, motivo: str) -
     if alerta.estado in (ESTADO_CERRADA, ESTADO_ESCALADA):
         raise ErrorValidacion("La alerta ya está cerrada o escalada.")
     _revisar(sesion, actor, alerta, "escalamiento", motivo, ESTADO_ESCALADA)
+    if alerta.ambito != "seguimiento_oci":
+        ahora = datetime.now(timezone.utc)
+        seguimiento = Alerta(
+            expediente_id=alerta.expediente_id, regla="OCI",
+            clave=f"escalamiento-{alerta.id}", severidad=SEVERIDAD_MEDIA,
+            explicacion=f"Se escaló la alerta {alerta.regla}: {motivo}",
+            datos={"alerta_origen_id": alerta.id}, persona_implicada_id=None,
+            ambito="seguimiento_oci", bloqueante=False, estado=ESTADO_ABIERTA,
+            creada_en=ahora, actualizada_en=ahora)
+        sesion.add(seguimiento)
+        sesion.flush()
+        bitacora.registrar(sesion, ts=ahora, actor_id=actor.persona_id,
+                          accion="oci.seguimiento_abierto", entidad="alerta",
+                          entidad_id=seguimiento.id, expediente_id=alerta.expediente_id,
+                          detalle={"alerta_origen_id": alerta.id, "resumen": seguimiento.explicacion})
+        from conforme import notificaciones
+        notificaciones.aviso_interno(
+            sesion, actor_id=actor.persona_id, expediente_id=alerta.expediente_id,
+            rol_destino=ROL_AUDITOR, motivo=f"Alerta {alerta.id} escalada al OCI.",
+            entidad="alerta", entidad_id=seguimiento.id)
 
 
 # --- F3: sello de conformidad ---------------------------------------------------
@@ -909,7 +1181,8 @@ def _filas(sesion: Session, consulta) -> list[dict]:
     return [dict(f._mapping) for f in sesion.execute(consulta)]
 
 
-def _secciones_de_contenido(sesion: Session, expediente_id: int) -> dict[str, str]:
+def _secciones_de_contenido(sesion: Session, expediente_id: int,
+                           conformidad_id: int) -> dict[str, str]:
     """Huella (SHA-256) de cada bloque de datos que el sello debe proteger.
 
     Se calcula desde las TABLAS, no desde la bitácora: así, cambiar un dato sin pasar por
@@ -925,11 +1198,13 @@ def _secciones_de_contenido(sesion: Session, expediente_id: int) -> dict[str, st
     conformidad = _filas(sesion, select(
         Conformidad.conformante_id, Conformidad.fecha_conformidad, Conformidad.observaciones,
         Conformidad.penalidad_aplicada,
-    ).where(Conformidad.expediente_id == expediente_id))
+    ).where(Conformidad.id == conformidad_id))
     entregables = _filas(sesion, select(
         Entregable.numero, Entregable.descripcion, ConformidadEntregable.cumplido,
         ConformidadEntregable.observacion,
-    ).outerjoin(ConformidadEntregable, ConformidadEntregable.entregable_id == Entregable.id)
+    ).outerjoin(ConformidadEntregable,
+                (ConformidadEntregable.entregable_id == Entregable.id)
+                & (ConformidadEntregable.conformidad_id == conformidad_id))
         .where(Entregable.expediente_id == expediente_id).order_by(Entregable.numero))
     evidencias_ = _filas(sesion, select(
         Entregable.numero, Evidencia.nombre_archivo, Evidencia.mime, Evidencia.tamano,
@@ -937,7 +1212,8 @@ def _secciones_de_contenido(sesion: Session, expediente_id: int) -> dict[str, st
     ).join(ConformidadEntregable,
            ConformidadEntregable.id == Evidencia.conformidad_entregable_id)
         .join(Entregable, Entregable.id == ConformidadEntregable.entregable_id)
-        .where(Entregable.expediente_id == expediente_id)
+        .where(Entregable.expediente_id == expediente_id,
+               ConformidadEntregable.conformidad_id == conformidad_id)
         .order_by(Entregable.numero, Evidencia.id))
     return {
         "expediente": sello.huella(expediente), "conformidad": sello.huella(conformidad),
@@ -959,7 +1235,7 @@ def preparar_sellado(
     sesion.flush()
     eventos = []
     for c in pendientes:
-        secciones = _secciones_de_contenido(sesion, c.expediente_id)
+        secciones = _secciones_de_contenido(sesion, c.expediente_id, c.id)
         eventos.append({
             "ts": ts_de(c) if ts_de else c.registrada_en, "actor_id": None,
             "accion": "conformidad.sellada", "entidad": "conformidad", "entidad_id": c.id,
@@ -1093,7 +1369,7 @@ def consultar_sello(sesion: Session, codigo: str | None, forzar: bool = False) -
             problemas.append("Este sello es anterior al control de contenido: no se puede "
                              "comprobar que los datos no cambiaron.")
         else:
-            actual = _secciones_de_contenido(sesion, datos["expediente_id"])
+            actual = _secciones_de_contenido(sesion, datos["expediente_id"], datos["id"])
             for clave, descripcion in _SECCIONES_SELLO.items():
                 if sellado.get(clave) != actual[clave]:
                     problemas.append(f"Cambió {descripcion} desde que se selló.")
@@ -1111,12 +1387,112 @@ def consultar_sello(sesion: Session, codigo: str | None, forzar: bool = False) -
     }
 
 
-# --- F4: lectura con IA (propuesta → revisión humana) -----------------------------
+# --- Fase 4: revisión del TDR antes de evaluar proveedores ------------------------
+
+def estado_tdr(sesion: Session, actor: Actor, expediente_id: int) -> dict:
+    _expediente_en_alcance(sesion, actor, expediente_id)
+    analizado = sesion.scalar(
+        select(func.count()).select_from(ExtraccionIA).where(
+            ExtraccionIA.expediente_id == expediente_id, ExtraccionIA.estado == "aprobada",
+            ExtraccionIA.origen == "modelo"))
+    pendientes = sesion.scalar(
+        select(func.count()).select_from(TdrObservacion).where(
+            TdrObservacion.expediente_id == expediente_id, TdrObservacion.estado == "pendiente"))
+    return {"analizado": bool(analizado), "pendientes": pendientes}
+
+
+def listar_observaciones_tdr(sesion: Session, actor: Actor, expediente_id: int) -> list[dict]:
+    _expediente_en_alcance(sesion, actor, expediente_id)
+    filas = sesion.execute(
+        select(TdrObservacion.id, TdrObservacion.origen, TdrObservacion.detalle,
+               TdrObservacion.severidad, TdrObservacion.estado, TdrObservacion.respuesta_area,
+               TdrObservacion.creado_en, TdrObservacion.respondido_en)
+        .where(TdrObservacion.expediente_id == expediente_id)
+        .order_by(TdrObservacion.id.desc()))
+    return [dict(f._mapping) for f in filas]
+
+
+def _guardar_observacion_tdr(sesion: Session, expediente: Expediente, *, origen: str,
+                             autor_id: int | None, detalle: str, severidad: str) -> None:
+    observacion = TdrObservacion(
+        expediente_id=expediente.id, origen=origen, autor_id=autor_id, detalle=detalle,
+        severidad=severidad, estado="pendiente", creado_en=datetime.now(timezone.utc))
+    sesion.add(observacion)
+    sesion.flush()
+    expediente.estado_flujo = "tdr_observado"
+    bitacora.registrar(
+        sesion, actor_id=autor_id, accion="tdr.observado", entidad="tdr_observacion",
+        entidad_id=observacion.id, expediente_id=expediente.id,
+        detalle={"origen": origen, "severidad": severidad,
+                 "resumen": f"Observación técnica del TDR: {detalle}"})
+
+
+def registrar_observacion_tdr(sesion: Session, actor: Actor, expediente_id: int, *,
+                             detalle: str, severidad: str) -> None:
+    exigir_rol(actor, ROL_ABASTECIMIENTO)
+    expediente = _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
+    if expediente.estado_flujo not in ("requerimiento", "tdr_observado", "en_evaluacion_proveedores"):
+        raise ErrorValidacion("El TDR se observa antes de enviar la selección a revisión independiente.")
+    detalle = _texto_obligatorio(detalle, "La observación")
+    if len(detalle) > 2000:
+        raise ErrorValidacion("La observación admite hasta 2000 caracteres.")
+    if severidad not in ("bloqueante", "advertencia"):
+        raise ErrorValidacion("La severidad de la observación no es válida.")
+    _guardar_observacion_tdr(sesion, expediente, origen="abastecimiento",
+                             autor_id=actor.persona_id, detalle=detalle, severidad=severidad)
+
+
+def responder_observacion_tdr(sesion: Session, actor: Actor, expediente_id: int,
+                             observacion_id: int, *, estado: str, respuesta: str) -> None:
+    exigir_rol(actor, ROL_AREA_USUARIA)
+    expediente = _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
+    if expediente.estado_flujo != "tdr_observado":
+        raise ErrorValidacion("Este expediente no tiene observaciones del TDR por atender.")
+    observacion = sesion.scalar(
+        select(TdrObservacion).where(TdrObservacion.id == observacion_id,
+                                     TdrObservacion.expediente_id == expediente_id)
+        .with_for_update())
+    if observacion is None:
+        raise ErrorValidacion("La observación no pertenece a este expediente.")
+    if observacion.estado != "pendiente":
+        raise ErrorValidacion("Esta observación ya fue respondida.")
+    if estado not in ("corregida", "justificada"):
+        raise ErrorValidacion("La respuesta debe indicar si se corrigió o se justificó el TDR.")
+    respuesta = _texto_obligatorio(respuesta, "La respuesta")
+    if len(respuesta) > 2000:
+        raise ErrorValidacion("La respuesta admite hasta 2000 caracteres.")
+    if estado == "corregida" and not sesion.scalar(
+        select(ExtraccionIA.id).where(
+            ExtraccionIA.expediente_id == expediente_id,
+            ExtraccionIA.estado == "aprobada", ExtraccionIA.origen == "modelo",
+            ExtraccionIA.revisado_en > observacion.creado_en)
+        .limit(1)):
+        raise ErrorValidacion("Carga y aprueba el TDR corregido con IA antes de marcar la observación como corregida.")
+    observacion.estado = estado
+    observacion.respuesta_area = respuesta
+    observacion.respondido_por = actor.persona_id
+    observacion.respondido_en = datetime.now(timezone.utc)
+    sesion.flush()
+    estado_actual = estado_tdr(sesion, actor, expediente_id)
+    if not estado_actual["pendientes"]:
+        expediente.estado_flujo = ("en_evaluacion_proveedores" if estado_actual["analizado"]
+                                  else "requerimiento")
+    bitacora.registrar(
+        sesion, actor_id=actor.persona_id, accion="tdr.respondido", entidad="tdr_observacion",
+        entidad_id=observacion.id, expediente_id=expediente_id,
+        detalle={"estado": estado, "respuesta": respuesta,
+                 "resumen": f"Observación del TDR {estado}: {respuesta}"})
+
+
+# --- Lectura con IA (propuesta → revisión humana) ----------------------------------
 
 def _expediente_para_ia(sesion: Session, actor: Actor, expediente_id: int) -> Expediente:
-    """Solo el área usuaria, sobre un expediente de su área que aún no tiene conformidad."""
+    """Solo el área usuaria; los nuevos expedientes cierran el TDR al emitir la orden."""
     exigir_rol(actor, ROL_AREA_USUARIA)
     expediente = _expediente_en_alcance(sesion, actor, expediente_id)
+    if expediente.numero_orden and sesion.scalar(select(RevisionPrevia.id).where(
+        RevisionPrevia.expediente_id == expediente_id)):
+        raise ErrorValidacion("El TDR quedó aprobado con la orden; no se añaden entregables después.")
     if sesion.execute(
         select(Conformidad.id).where(Conformidad.expediente_id == expediente.id)
     ).first():
@@ -1232,7 +1608,9 @@ def aprobar_extraccion(sesion: Session, actor: Actor, extraccion_id: int,
         select(func.count()).select_from(Entregable)
         .where(Entregable.expediente_id == expediente.id)
     ).scalar_one()
-    limpios, errores = validacion_entregables.validar(nuevos)
+    solo_validar_tdr = (not nuevos and total and expediente.estado_flujo in
+                        ("requerimiento", "tdr_observado", "en_evaluacion_proveedores"))
+    limpios, errores = ([], []) if solo_validar_tdr else validacion_entregables.validar(nuevos)
     if total > validacion_entregables.MAXIMO:
         errores.append(f"El expediente quedaría con más de {validacion_entregables.MAXIMO} "
                        "entregables.")
@@ -1256,6 +1634,30 @@ def aprobar_extraccion(sesion: Session, actor: Actor, extraccion_id: int,
                  "entregables_agregados": len(limpios),
                  "resumen": f"Propuesta de IA aprobada: {len(limpios)} entregables añadidos."},
     )
+    if expediente.estado_flujo in ("requerimiento", "tdr_observado", "en_evaluacion_proveedores"):
+        # El respaldo es un ejemplo fijo, no una lectura del PDF cargado: sus discrepancias
+        # no deben convertirse en hallazgos automáticos sobre ese documento.
+        if extraccion.origen == "modelo":
+            propuesta = PropuestaIA.model_validate(extraccion.resultado)
+            hallazgos = []
+            if propuesta.corresponde_al_expediente is False:
+                hallazgos.append(("bloqueante", "El TDR no parece corresponder al requerimiento. "
+                                   + (propuesta.motivo_discrepancia or "Revisa el objeto del documento.")))
+            if propuesta.plazo_dias and propuesta.plazo_dias != expediente.plazo_dias:
+                hallazgos.append(("advertencia", f"El plazo del TDR ({propuesta.plazo_dias} días) "
+                                   f"no coincide con el requerimiento ({expediente.plazo_dias} días)."))
+            pendientes = set(sesion.scalars(
+                select(TdrObservacion.detalle).where(
+                    TdrObservacion.expediente_id == expediente.id,
+                    TdrObservacion.estado == "pendiente")))
+            for severidad, detalle in hallazgos:
+                if detalle not in pendientes:
+                    _guardar_observacion_tdr(sesion, expediente, origen="ia", autor_id=None,
+                                             detalle=detalle, severidad=severidad)
+        estado_actual = estado_tdr(sesion, actor, expediente.id)
+        expediente.estado_flujo = ("tdr_observado" if estado_actual["pendientes"] else
+                                  "en_evaluacion_proveedores" if estado_actual["analizado"] else
+                                  "requerimiento")
     return len(limpios)
 
 

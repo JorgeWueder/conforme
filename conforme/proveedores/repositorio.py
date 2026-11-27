@@ -21,7 +21,7 @@ from conforme import repositorio as expedientes
 from conforme.errores import ErrorValidacion
 from conforme.modelos import (
     ROL_ABASTECIMIENTO, ROL_AREA_USUARIA, Alerta, Area, Bitacora, Conformidad, ConflictoInteres,
-    Expediente, ExpedientePostor, Persona, Proveedor, RevisionPrevia, Usuario,
+    Entregable, Expediente, ExpedientePostor, Persona, Proveedor, RevisionPrevia, Usuario,
 )
 from conforme.permisos import (
     ROLES_EVALUACION_LECTURA, Actor, PermisoDenegado, exigir_otra_persona, exigir_rol,
@@ -171,6 +171,9 @@ def obtener(sesion: Session, actor: Actor, expediente_id: int) -> dict:
     puede_revisar = es_dec and estado == EN_REVISION and evaluador_id != actor.usuario_id
     if not es_dec:
         bloqueo = "Consulta en solo lectura."
+    elif estado in ("requerimiento", "tdr_observado"):
+        bloqueo = ("El área usuaria debe analizar el TDR con IA y responder sus observaciones "
+                   "antes de evaluar proveedores.")
     elif estado == EN_EVALUACION and not puede_editar:
         bloqueo = (f"Esta evaluación la conduce {_nombre_usuario(sesion, evaluador_id)}. "
                    "Podrás hacer la revisión independiente cuando te la envíe.")
@@ -460,6 +463,9 @@ def enviar_a_revision(sesion: Session, actor: Actor, expediente_id: int, *, sele
                       sustento: str, descartes: dict[int, str], declaro_sin_conflicto: bool) -> None:
     expediente = _expediente(sesion, actor, expediente_id, bloquear=True)
     evaluacion = _asegurar_evaluacion(sesion, actor, expediente)
+    tdr = expedientes.estado_tdr(sesion, actor, expediente_id)
+    if not tdr["analizado"] or tdr["pendientes"]:
+        raise ErrorValidacion("El TDR debe analizarse con IA y no tener observaciones pendientes.")
     postores = _postores(sesion, expediente_id)
     if not postores or any(p.informe_consolidado is None for p in postores):
         raise ErrorValidacion("Consolida la evaluación antes de seleccionar.")
@@ -563,6 +569,9 @@ def confirmar_orden(sesion: Session, actor: Actor, expediente_id: int, *, numero
     expediente = _expediente(sesion, actor, expediente_id, bloquear=True)
     if expediente.estado_flujo != APROBADA:
         raise ErrorValidacion("La orden se registra cuando la selección del proveedor tiene revisión independiente aprobada.")
+    entregables = list(sesion.scalars(select(Entregable).where(Entregable.expediente_id == expediente_id)))
+    if not entregables or any(not (e.criterio_evidencia or "").strip() for e in entregables):
+        raise ErrorValidacion("Define la evidencia mínima de cada entregable antes de registrar la orden.")
     evaluacion = _evaluacion(sesion, expediente_id)
     elegido = next((p for p in _postores(sesion, expediente_id)
                     if p.ruc == evaluacion.proveedor_seleccionado_ruc), None)

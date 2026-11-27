@@ -26,7 +26,7 @@ from conforme.permisos import Actor, PermisoDenegado, exigir_rol
 from conforme.proveedores import fuentes
 
 ROLES_LECTURA = (ROL_ABASTECIMIENTO, ROL_TESORERIA, ROL_AUDITOR)
-ROLES_ANALISIS = (ROL_ABASTECIMIENTO, ROL_AUDITOR)
+ROLES_ANALISIS = (ROL_ABASTECIMIENTO,)
 TAMANO_MAXIMO = 5 * 1024 * 1024
 MAXIMO_POR_POSTOR = 6
 MIMES_ADMITIDOS = {

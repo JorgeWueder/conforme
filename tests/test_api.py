@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app import app
 from conforme import db
+from conforme.ia import evidencias as revision_evidencias
 from tests.conftest import PASSWORD_PRUEBA
 
 
@@ -110,20 +111,28 @@ def test_conformidad_multipart_con_asignacion_de_evidencia(engine, base_sembrada
             "fecha_entrega_real": "2026-11-20",
             "penalidad_aplicada": "0.00",
             "items": [
-                {"entregable_id": item["id"], "cumplido": True, "cantidad_archivos": int(i == 0)}
+                {"entregable_id": item["id"], "cumplido": True, "cantidad_archivos": 1}
                 for i, item in enumerate(entregables)
             ],
         }
         pdf = b"%PDF-1.4\n%%EOF"
         assert cliente.post(f"{ruta}/conformidad", data={"datos": json.dumps(datos)}).status_code == 422
+        monkeypatch.setattr(revision_evidencias.eve, "solicitar", lambda *_args: {
+            "revisiones": [{"entregable_id": e["id"], "estado": "dudoso",
+                           "explicacion": "El archivo no contiene texto legible para comprobar la entrega."}
+                          for e in entregables]})
         respuesta = cliente.post(
             f"{ruta}/conformidad", data={"datos": json.dumps(datos)},
-            files=[("archivos", ("acta.pdf", pdf, "application/pdf"))],
+            files=[("archivos", (f"acta-{i}.pdf", pdf, "application/pdf"))
+                   for i in range(len(entregables))],
         )
         assert respuesta.status_code == 201, respuesta.json()
-        entregables = cliente.get(ruta).json()["entregables"]
+        assert respuesta.json()["advertencias_evidencia"] > 0
+        detalle = cliente.get(ruta).json()
+        assert detalle["conformidad"]["verificacion_evidencias"]["coherencia_ia"]["estado"] == "completada"
+        entregables = detalle["entregables"]
         evidencia = entregables[0]["evidencias"][0]
-        assert all(not item["evidencias"] for item in entregables[1:])
+        assert all(len(item["evidencias"]) == 1 for item in entregables)
         descarga = cliente.get(f"/api/evidencias/{evidencia['id']}?descarga=true")
         assert descarga.content == pdf
         assert "attachment" in descarga.headers["content-disposition"]

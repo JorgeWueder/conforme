@@ -38,10 +38,15 @@ export const ACCIONES = {
   "alerta.descargo": "Descargo presentado",
   "alerta.cerrada": "Alerta cerrada",
   "alerta.escalada": "Alerta escalada",
+  "oci.actuacion": "Actuación OCI registrada",
+  "oci.seguimiento_abierto": "Seguimiento OCI abierto",
+  "notificacion.simulada": "Aviso interno registrado",
   "conformidad.sellada": "Conformidad sellada",
   "ia.propuesta": "TDR leído",
   "ia.aprobada": "Propuesta de entregables aprobada",
   "ia.rechazada": "Propuesta de entregables rechazada",
+  "tdr.observado": "TDR observado",
+  "tdr.respondido": "Observación del TDR respondida",
 };
 /** Estado del expediente en el flujo, con quién debe actuar ahora. */
 export const ESTADOS_FLUJO = {
@@ -62,7 +67,7 @@ export const ANTES_DE_LA_ORDEN = ["requerimiento", "tdr_observado", "en_evaluaci
   "pendiente_revision_independiente", "seleccion_aprobada"];
 export const tieneOrden = (expediente) => !ANTES_DE_LA_ORDEN.includes(expediente.estado_flujo);
 
-export const AVISO_ALERTAS = "Señales para revisión antes del pago.";
+export const AVISO_ALERTAS = "Señales preventivas, operativas y de seguimiento según tu rol.";
 
 const REGLAMENTO = "https://cdn.www.gob.pe/uploads/document/file/9295551/6444155-ref-reglamento-de-la-ley-de-contrataciones-del-estado-con-modificaciones-posteriores-hasta-08-ene-2026-2-v2.pdf?v=1768513235";
 const LEY_CONTRATACIONES = "https://www.congreso.gob.pe/Docs/DGP/DIDP/files/ley_32069.pdf";

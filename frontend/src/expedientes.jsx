@@ -227,8 +227,8 @@ export function NuevoRequerimiento() {
         entregables, origen_entregables: modo, postores,
       } });
       const destino = rutaExpediente(id);
-      navegar(modo === "tdr" ? destino + "/tdr" : destino,
-        { state: { aviso: "Requerimiento registrado. Abastecimiento evaluará a los posibles proveedores." } });
+      navegar(destino + "/tdr",
+        { state: { aviso: "Requerimiento registrado. Analiza el TDR para habilitar la evaluación de proveedores." } });
     });
   }
 
@@ -259,6 +259,7 @@ export function NuevoRequerimiento() {
           </select></Campo>
           {modo === "manual" && <EditorManual filas={manual} setFilas={setManual} />}
           {modo === "tdr" && <p className="secundario">Después de registrar el requerimiento, carga el PDF y revisa los entregables extraídos.</p>}
+          {modo !== "tdr" && <p className="secundario">Después de registrar el requerimiento, analiza el TDR con IA para habilitar la evaluación de proveedores.</p>}
           {modo === "csv" && <>
             <Campo titulo="Archivo CSV" ayuda="Usa el encabezado numero,descripcion y una fila por entregable.">
               <input type="file" accept=".csv,text/csv" onChange={importar} disabled={cargaCsv.pendiente} />

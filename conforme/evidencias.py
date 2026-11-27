@@ -1,15 +1,30 @@
 """Prepara un archivo de evidencia para guardarlo: valida, reduce y calcula su huella."""
 import hashlib
 import io
+from datetime import date, datetime
 from pathlib import PurePath, PureWindowsPath
 
 from PIL import Image, ImageOps
+from pypdf import PdfReader
 
 from conforme.errores import ErrorValidacion
 
 TAMANO_MAXIMO = 5 * 1024 * 1024  # igual que el CHECK de la tabla evidencia
 LADO_MAXIMO = 1600
 MIMES_ADMITIDOS = ("image/jpeg", "image/png", "application/pdf")
+
+
+def fecha_de_metadatos(mime: str, contenido: bytes) -> date | None:
+    """Fecha declarada por el archivo, solo como señal: los metadatos se pueden alterar."""
+    try:
+        if mime == "application/pdf":
+            creada = PdfReader(io.BytesIO(contenido)).metadata.creation_date
+            return creada.date() if creada else None
+        with Image.open(io.BytesIO(contenido)) as imagen:
+            texto = imagen.getexif().get(36867) or imagen.getexif().get(306)
+        return datetime.strptime(texto[:10], "%Y:%m:%d").date() if texto else None
+    except Exception:  # metadatos ausentes o archivo que no se puede inspeccionar
+        return None
 
 
 def preparar(nombre_archivo: str, mime: str, contenido: bytes) -> dict:

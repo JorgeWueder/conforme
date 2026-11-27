@@ -11,6 +11,7 @@ import fotoPatio from "./assets/unt-patio-historico.webp";
 
 const ROLES_DEMO = [
   { usuario: "dec1", rol: "Abastecimiento" },
+  { usuario: "dec2", rol: "Revisión independiente" },
   { usuario: "inf1", rol: "Área usuaria" },
   { usuario: "tes1", rol: "Tesorería" },
   { usuario: "oci1", rol: "OCI" },

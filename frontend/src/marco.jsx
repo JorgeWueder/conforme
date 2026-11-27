@@ -35,7 +35,7 @@ export function Marco({ actor, cerrarSesion, children }) {
   const porEvaluar = evaluaciones.datos?.filter((f) => f.me_toca_revisar
     || (f.estado_flujo === "en_evaluacion_proveedores" && (f.soy_evaluador || !f.evaluador_id))).length ?? 0;
   const alertas = useDatos(actor && ruta ? `/alertas?panel=${encodeURIComponent(ruta)}` : null);
-  const porAtender = alertas.datos?.alertas.filter((a) => a.tipo_prestacion === "servicio" && meToca(a, actor)).length ?? 0;
+  const porAtender = alertas.datos?.alertas.filter((a) => meToca(a, actor)).length ?? 0;
   // Mapa de módulos por rol (PLAN.md, sección 5). El expediente es el eje de todo.
   const grupos = [
     ["Contratación", [
@@ -51,6 +51,7 @@ export function Marco({ actor, cerrarSesion, children }) {
     ["Seguimiento", [
       ["/alertas", "Alertas", Bell],
       ["/indicadores", "Indicadores", BarChart3],
+      ...(rol === "auditor" ? [["/integridad", "Integridad y conflictos", ShieldCheck]] : []),
       ...(rol === "auditor" ? [["/bitacora", "Bitácora", Database]] : []),
       ["/verificar", "Verificar sello", QrCode],
     ]],

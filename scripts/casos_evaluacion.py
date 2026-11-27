@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from conforme import auth, db, repositorio
+from conforme.ia.extractor import EntregableIA, PropuestaIA
 from conforme.modelos import Area, Expediente, Persona, Usuario
 from conforme.proveedores import fuentes
 from conforme.proveedores import repositorio as evaluacion
@@ -34,8 +35,23 @@ def _actor(sesion: Session, username: str):
     return auth.actor_por_id(sesion, usuario_id)
 
 
-def _entregables(*descripciones):
-    return [{"numero": i, "descripcion": d} for i, d in enumerate(descripciones, start=1)]
+def _tdr_simulado(sesion: Session, actor, expediente_id: int, descripciones: list[str]) -> None:
+    """Completa el TDR de los casos ficticios sin llamar a un proveedor de IA."""
+    expediente = sesion.get(Expediente, expediente_id)
+    propuesta = PropuestaIA(
+        objeto=expediente.descripcion, corresponde_al_expediente=True,
+        plazo_dias=expediente.plazo_dias,
+        entregables=[EntregableIA(numero=i, descripcion=d)
+                     for i, d in enumerate(descripciones, start=1)])
+    lectura_id = repositorio.registrar_propuesta_ia(
+        sesion, actor, expediente_id, archivo_nombre="TDR simulado (caso de demostración)",
+        archivo_sha256="0" * 64, propuesta=propuesta, origen="modelo",
+        aviso="Lectura simulada para los casos de demostración.")
+    repositorio.aprobar_extraccion(sesion, actor, lectura_id, descripciones)
+    entregables = repositorio.listar_entregables(sesion, actor, expediente_id)
+    repositorio.definir_criterios_evidencia(sesion, actor, expediente_id, [
+        {"entregable_id": e["id"], "criterio_evidencia": f"Documento firmado que acredite: {e['descripcion']}"}
+        for e in entregables])
 
 
 def _asegurar_dec2(sesion: Session) -> None:
@@ -70,8 +86,7 @@ def sembrar_casos(sesion: Session, hoy: date | None = None) -> list[tuple[str, s
     laboratorio = repositorio.crear_requerimiento(
         sesion, inf1, tipo="servicio", descripcion=LABORATORIO, fecha_requerimiento=hoy - timedelta(days=3),
         plazo_dias=30, monto="28500.00",
-        entregables=_entregables("Plan de mantenimiento y cronograma", "Informe técnico de mantenimiento por equipo",
-                                 "Certificados de calibración vigentes"),
+        entregables=[], origen_entregables="tdr",
         postores=[
             {"ruc": fuentes.RUC_TECNOLAB, "razon_social": "Tecnolab Servicios Integrales S.A.C.",
              "monto_cotizado": "27350.00", "plazo_dias": 30, "contacto_correo": "ventas@tecnolab-sim.pe",
@@ -84,6 +99,8 @@ def sembrar_casos(sesion: Session, hoy: date | None = None) -> list[tuple[str, s
              "contacto_telefono": "949-555-120", "proforma_ref": "SMX-COT-552"},
         ])
     sesion.get(Expediente, laboratorio).solicitante_id = solicitante.id
+    _tdr_simulado(sesion, inf1, laboratorio, ["Plan de mantenimiento y cronograma",
+        "Informe técnico de mantenimiento por equipo", "Certificados de calibración vigentes"])
     from scripts.casos_documentos import sembrar_documentos  # evita una importación circular
     sembrar_documentos(sesion, laboratorio)
 
@@ -91,8 +108,7 @@ def sembrar_casos(sesion: Session, hoy: date | None = None) -> list[tuple[str, s
     red = repositorio.crear_requerimiento(
         sesion, inf1, tipo="servicio", descripcion=RED, fecha_requerimiento=hoy - timedelta(days=8),
         plazo_dias=45, monto="42000.00",
-        entregables=_entregables("Diagnóstico de la red y plan de trabajo", "Informe de mantenimiento correctivo",
-                                 "Informe final con mediciones de cableado"),
+        entregables=[], origen_entregables="tdr",
         postores=[
             {"ruc": fuentes.RUC_REDNORTE, "razon_social": "Red Norte Telecomunicaciones S.A.C.",
              "monto_cotizado": "42900.00", "plazo_dias": 45, "contacto_correo": "proyectos@rednorte-sim.pe",
@@ -101,6 +117,8 @@ def sembrar_casos(sesion: Session, hoy: date | None = None) -> list[tuple[str, s
              "monto_cotizado": "38700.00", "plazo_dias": 45, "contacto_correo": "contacto@conecta-sim.pe",
              "contacto_telefono": "044-610233", "proforma_ref": "CST-118"},
         ])
+    _tdr_simulado(sesion, inf1, red, ["Diagnóstico de la red y plan de trabajo",
+        "Informe de mantenimiento correctivo", "Informe final con mediciones de cableado"])
     evaluacion.analizar(sesion, dec1, red)
     evaluacion.consolidar(sesion, dec1, red)
     postores = {p["ruc"]: p for p in evaluacion.obtener(sesion, dec1, red)["postores"]}
@@ -116,13 +134,15 @@ def sembrar_casos(sesion: Session, hoy: date | None = None) -> list[tuple[str, s
     fumigacion = repositorio.crear_requerimiento(
         sesion, inf1, tipo="servicio", descripcion=FUMIGACION, fecha_requerimiento=hoy - timedelta(days=12),
         plazo_dias=10, monto="6800.00",
-        entregables=_entregables("Constancia de fumigación por ambiente", "Informe con productos y dosis aplicadas"),
+        entregables=[], origen_entregables="tdr",
         postores=[
             {"ruc": fuentes.ruc_con_verificador("2060990011"), "razon_social": "Saneamiento Ambiental Chimú S.A.C.",
              "monto_cotizado": "6500.00", "plazo_dias": 10, "contacto_telefono": "044-299310"},
             {"ruc": fuentes.ruc_con_verificador("2060881122"), "razon_social": "Fumigaciones La Libertad E.I.R.L.",
              "monto_cotizado": "7150.00", "plazo_dias": 12, "contacto_telefono": "044-233871"},
         ])
+    _tdr_simulado(sesion, inf1, fumigacion, ["Constancia de fumigación por ambiente",
+        "Informe con productos y dosis aplicadas"])
     evaluacion.analizar(sesion, dec1, fumigacion)
     evaluacion.consolidar(sesion, dec1, fumigacion)
     postores = sorted(evaluacion.obtener(sesion, dec1, fumigacion)["postores"], key=lambda p: p["monto_cotizado"])

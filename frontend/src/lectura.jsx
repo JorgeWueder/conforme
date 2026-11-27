@@ -5,6 +5,7 @@ import { useNavegar } from "./navegacion";
 import { useParams } from "next/navigation";
 import { useConsulta } from "./navegacion";
 import { api, useAccion, useDatos } from "./api";
+import { useSesion } from "./sesion";
 import { capitalizar, fechaHora, rutaExpediente } from "./dominio";
 import { Aviso, AvisoNavegacion, Campo, Carga, Encabezado, EstadoAccion, Indicador, Volver } from "./ui";
 
@@ -62,7 +63,8 @@ function Propuesta({ pendiente, expediente, recargar }) {
       <EstadoAccion accion={accion} />
       <form className="panel formulario" onSubmit={aprobar}>
         <h3>Entregables propuestos</h3>
-        <small>Se añadirán a los entregables existentes con numeración correlativa.</small>
+        <small>Se añadirán a los entregables existentes con numeración correlativa. Si ya registraste todos,
+          quita las filas y aprueba solo el análisis del TDR.</small>
         {filas.map((fila, i) => (
           <div className="fila-editor fila-editor-ia" key={fila.id}>
             <Campo titulo={`Entregable ${i + 1}`}>
@@ -93,12 +95,16 @@ function Propuesta({ pendiente, expediente, recargar }) {
 }
 
 function LecturasDelExpediente({ id }) {
+  const { actor } = useSesion();
   const recurso = useDatos(`/expedientes/${id}/lecturas`);
   const accion = useAccion();
   const [archivo, setArchivo] = useState(null);
   const [rechazada, setRechazada] = useState(false);
   if (!recurso.datos) return <Carga recurso={recurso} />;
-  const { expediente, entregables, lecturas, hay_ejemplo } = recurso.datos;
+  const { expediente, entregables, lecturas, observaciones, tdr, hay_ejemplo } = recurso.datos;
+  const esArea = actor.rol === "area_usuaria";
+  const esDec = actor.rol === "abastecimiento";
+  const preOrden = ["requerimiento", "tdr_observado", "en_evaluacion_proveedores"].includes(expediente.estado_flujo);
   const pendiente = lecturas.find((lectura) => lectura.estado === "propuesta");
   const historial = lecturas.filter((lectura) => expediente.tiene_conformidad || lectura.estado !== "propuesta");
 
@@ -115,6 +121,40 @@ function LecturasDelExpediente({ id }) {
     });
   }
 
+  function observar(evento) {
+    evento.preventDefault();
+    const form = evento.currentTarget;
+    accion.ejecutar(async () => {
+      await api(`/expedientes/${id}/tdr/observaciones`, {
+        method: "POST", data: Object.fromEntries(new FormData(form)),
+      });
+      form.reset();
+      recurso.recargar();
+    });
+  }
+
+  function responder(evento, observacionId) {
+    evento.preventDefault();
+    const form = evento.currentTarget;
+    accion.ejecutar(async () => {
+      await api(`/expedientes/${id}/tdr/observaciones/${observacionId}/responder`, {
+        method: "POST", data: Object.fromEntries(new FormData(form)),
+      });
+      recurso.recargar();
+    });
+  }
+
+  function guardarCriterios(evento) {
+    evento.preventDefault();
+    const form = evento.currentTarget;
+    accion.ejecutar(async () => {
+      await api(`/expedientes/${id}/criterios-evidencia`, { method: "POST",
+        data: entregables.map((item) => ({ entregable_id: item.id,
+          criterio_evidencia: new FormData(form).get(`criterio-${item.id}`) })) });
+      recurso.recargar();
+    });
+  }
+
   return (
     <>
       <div className="panel ficha contexto-formulario">
@@ -122,8 +162,58 @@ function LecturasDelExpediente({ id }) {
         <p>{expediente.descripcion}</p>
         <small>Entregables existentes: {entregables.map((e) => `${e.numero}. ${e.descripcion}`).join("; ") || "ninguno"}.</small>
       </div>
+      {preOrden && <div className="panel ficha">
+        <h2>Estado del TDR</h2>
+        <p>{tdr.analizado ? "Lectura con IA aprobada." : "Falta aprobar una lectura real del TDR con IA."}
+          {tdr.pendientes ? ` ${tdr.pendientes} observación(es) pendiente(s).` : " Sin observaciones pendientes."}</p>
+        {!tdr.analizado && lecturas.some((l) => l.origen === "respaldo") &&
+          <Aviso tipo="advertencia">El ejemplo guardado sirve para probar la extracción, pero no acredita el análisis del TDR cargado.</Aviso>}
+      </div>}
+      {esArea && !expediente.fecha_orden && entregables.length > 0 && <form className="panel formulario" onSubmit={guardarCriterios}>
+        <h2>Evidencia exigida por entregable</h2>
+        <p className="secundario">Define el archivo o conjunto de archivos que permitirá comprobar cada entrega. Es obligatorio antes de registrar la orden.</p>
+        {entregables.map((item) => <Campo key={item.id} titulo={`${item.numero}. ${item.descripcion}`}>
+          <input name={`criterio-${item.id}`} defaultValue={item.criterio_evidencia ?? ""}
+            placeholder="Ej. Informe técnico firmado y acta de recepción" minLength={15} maxLength={300} required />
+        </Campo>)}
+        <EstadoAccion accion={accion} />
+        <div><button disabled={accion.pendiente}>Guardar evidencia exigida</button></div>
+      </form>}
+      {esDec && entregables.some((item) => item.criterio_evidencia) && <div className="panel ficha">
+        <h2>Evidencia exigida</h2>
+        <ul>{entregables.map((item) => <li key={item.id}>{item.numero}. {item.criterio_evidencia || "Sin definir"}</li>)}</ul>
+      </div>}
+      {observaciones.length > 0 && <section className="panel formulario">
+        <h2>Observaciones técnicas ({observaciones.length})</h2>
+        {observaciones.map((obs) => <div className="ficha" key={obs.id}>
+          <p><Indicador tono={obs.estado === "pendiente" ? "ambar" : "verde"}>
+            {obs.estado === "pendiente" ? "Pendiente" : obs.estado === "corregida" ? "Corregida" : "Justificada"}
+          </Indicador> {obs.detalle}</p>
+          <small>{obs.origen === "ia" ? "Hallazgo de IA" : "Observación de Abastecimiento"} · {fechaHora(obs.creado_en)}</small>
+          {obs.respuesta_area && <p><strong>Respuesta del área:</strong> {obs.respuesta_area}</p>}
+          {esArea && obs.estado === "pendiente" && <form className="formulario" onSubmit={(e) => responder(e, obs.id)}>
+            <Campo titulo="Resultado"><select name="estado" defaultValue="corregida">
+              <option value="corregida">Corregí el TDR</option><option value="justificada">Justifiqué el punto</option>
+            </select></Campo>
+            <Campo titulo="Explica la corrección o justificación"
+              ayuda="Si corregiste el TDR, carga y aprueba primero la nueva versión con IA.">
+              <textarea name="respuesta" maxLength={2000} required />
+            </Campo>
+            <div><button disabled={accion.pendiente}>Registrar respuesta</button></div>
+          </form>}
+        </div>)}
+      </section>}
+      {esDec && preOrden && <form className="panel formulario" onSubmit={observar}>
+        <h2>Registrar observación técnica</h2>
+        <Campo titulo="Observación"><textarea name="detalle" maxLength={2000} required /></Campo>
+        <Campo titulo="Severidad"><select name="severidad" defaultValue="bloqueante">
+          <option value="bloqueante">Bloqueante</option><option value="advertencia">Advertencia</option>
+        </select></Campo>
+        <EstadoAccion accion={accion} />
+        <div><button disabled={accion.pendiente}>Registrar observación</button></div>
+      </form>}
       {expediente.tiene_conformidad && !historial.length && <Aviso>Este expediente no tiene lecturas de TDR registradas.</Aviso>}
-      {!expediente.tiene_conformidad && <form className="panel formulario" onSubmit={leer}>
+      {esArea && !expediente.fecha_orden && !expediente.tiene_conformidad && <form className="panel formulario" onSubmit={leer}>
         <div className="fila-titulo">
           <h2>Cargar TDR</h2>
           {hay_ejemplo && <a className="boton" href="/api/ia/ejemplo"><Download size={16} /> Descargar PDF de ejemplo</a>}
@@ -138,7 +228,7 @@ function LecturasDelExpediente({ id }) {
           <FileText size={17} />{accion.pendiente ? "Procesando los TDR…" : "Extraer entregables con IA"}</button></div>
       </form>}
       {rechazada && <Aviso tipo="exito">Propuesta rechazada. No se añadió ningún entregable.</Aviso>}
-      {pendiente && !expediente.tiene_conformidad && <Propuesta key={pendiente.id} pendiente={pendiente} expediente={expediente} recargar={() => {
+      {esArea && pendiente && !expediente.fecha_orden && !expediente.tiene_conformidad && <Propuesta key={pendiente.id} pendiente={pendiente} expediente={expediente} recargar={() => {
         setRechazada(true);
         recurso.recargar();
       }} />}
@@ -155,7 +245,7 @@ function LecturasDelExpediente({ id }) {
 export function RevisarTdr() {
   const { id } = useParams();
   return <>
-    <Encabezado titulo="Términos de referencia" descripcion="La IA propone entregables del PDF. El área usuaria revisa y aprueba cuáles se incorporan al expediente.">
+    <Encabezado titulo="Términos de referencia" descripcion="El área usuaria analiza el TDR con IA y responde observaciones; Abastecimiento revisa el documento antes de evaluar proveedores.">
       <Volver to={rutaExpediente(id)}>Expediente</Volver>
     </Encabezado>
     <AvisoNavegacion />
@@ -166,7 +256,8 @@ export function RevisarTdr() {
 export function LecturaIA() {
   const recurso = useDatos("/expedientes");
   const [params, setParams] = useConsulta();
-  const elegibles = recurso.datos?.filter((e) => !e.tiene_conformidad && (e.tipo === "servicio" || String(e.id) === params.get("expediente")));
+  const elegibles = recurso.datos?.filter((e) => !e.fecha_orden && !e.tiene_conformidad &&
+    (e.tipo === "servicio" || String(e.id) === params.get("expediente")));
   const elegido = elegibles?.find((e) => String(e.id) === params.get("expediente")) ?? elegibles?.[0];
   return (
     <>

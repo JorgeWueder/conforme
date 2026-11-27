@@ -58,6 +58,9 @@ NOMBRE_REGLA = {
     "R7": "Compras similares sucesivas al mismo proveedor",
     "R8": "Fechas incoherentes en el expediente",
 }
+AMBITO_POR_REGLA = {regla: ("preventiva_dec" if regla in ("R6", "R7")
+                             else "operativa_tesoreria") for regla in NOMBRE_REGLA}
+BLOQUEANTES_POR_REGLA = frozenset(("R1", "R4", "R5"))
 
 _CENTIMOS = Decimal("0.01")
 

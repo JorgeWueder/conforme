@@ -5,6 +5,7 @@ import { Conformidad } from "./conformidad";
 import { Detalle } from "./detalle";
 import { Expedientes, NuevoRequerimiento } from "./expedientes";
 import { Indicadores } from "./indicadores";
+import { Integridad } from "./integridad";
 import { LecturaIA, RevisarTdr } from "./lectura";
 import { useSesion } from "./sesion";
 import { Aviso } from "./ui";
@@ -48,9 +49,15 @@ export function VistaLectura() {
 }
 
 export function VistaTdr() {
-  return <Rol nombre="area_usuaria"><RevisarTdr /></Rol>;
+  const { actor } = useSesion();
+  return ["area_usuaria", "abastecimiento"].includes(actor?.rol)
+    ? <RevisarTdr /> : <Aviso tipo="error">Tu rol no permite acceder a esta página.</Aviso>;
 }
 
 export function VistaBitacora() {
   return <Rol nombre="auditor"><Bitacora /></Rol>;
+}
+
+export function VistaIntegridad() {
+  return <Rol nombre="auditor"><Integridad /></Rol>;
 }

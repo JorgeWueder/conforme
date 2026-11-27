@@ -481,6 +481,8 @@ export function FichaEvaluacion({ id }) {
         <Pasos pasos={pasosDe(datos)} />
       </div>
       {datos.bloqueo && <Aviso>{datos.bloqueo}</Aviso>}
+      {["requerimiento", "tdr_observado"].includes(expediente.estado_flujo) &&
+        <Link className="boton" href={`${rutaExpediente(expediente.id)}/tdr`}>Revisar TDR</Link>}
       <Siguiente datos={datos} accion={accion} recargar={recurso.recargar} />
       <EstadoAccion accion={accion} />
       <section className="seccion" aria-labelledby="titulo-postores">

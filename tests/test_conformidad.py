@@ -73,16 +73,13 @@ def test_conformidad_completa_no_alerta_y_queda_en_bitacora(sesion_sembrada):
     assert bitacora.verificar_cadena(s).integra
 
 
-def test_se_puede_guardar_sin_evidencia_y_eso_genera_r1(sesion_sembrada):
+def test_no_se_guarda_conformidad_sin_evidencia(sesion_sembrada):
     s = sesion_sembrada
     inf1 = actor_de(s, "inf1")
     exp = _pendiente(s, inf1)
-    _registrar(s, inf1, exp, sin_evidencia={1})
-    reglas = {a["regla"] for a in repositorio.listar_alertas(s, inf1, expediente_id=exp["id"])}
-    assert reglas == {"R1"}
-    assert repositorio.obtener_expediente(s, inf1, exp["id"])["semaforo"] == "rojo"
-    acciones = [e["accion"] for e in repositorio.linea_de_tiempo(s, inf1, exp["id"])]
-    assert acciones.count("alerta.generada") == 1
+    with pytest.raises(ErrorValidacion, match="adjunta su evidencia"):
+        _registrar(s, inf1, exp, sin_evidencia={1})
+    assert repositorio.obtener_conformidad(s, inf1, exp["id"]) is None
 
 
 def test_entregable_observado_se_subsana_con_evidencia_y_queda_sellado(sesion_sembrada):
@@ -206,7 +203,7 @@ def test_alertas_visibles_segun_el_alcance(sesion_sembrada):
     assert {a["area_sigla"] for a in propias} == {"INF"}
 
 
-def test_solo_tesoreria_registra_pagos(sesion_sembrada):
+def test_solo_tesoreria_intenta_pagos_y_el_checklist_bloquea_legacy(sesion_sembrada):
     s = sesion_sembrada
     exp = next(x for x in repositorio.listar_expedientes(s, actor_de(s, "inf1"))
                if x["tiene_conformidad"] and x["semaforo"] == "verde")
@@ -218,15 +215,12 @@ def test_solo_tesoreria_registra_pagos(sesion_sembrada):
     antes = len(repositorio.listar_pagos(s, tes1, exp["id"]))
     with pytest.raises(ErrorValidacion):
         repositorio.registrar_pago(s, tes1, exp["id"], fecha_pago=date(2026, 11, 10), monto=0)
-    # Pago posterior a la conformidad: no alerta.
-    repositorio.registrar_pago(s, tes1, exp["id"], fecha_pago=date(2026, 11, 20),
-                              monto=exp["monto"], referencia_siaf=" 2026-000125 ")
+    # Los expedientes históricos carecen de evaluación y revisión de fase 5.
+    with pytest.raises(ErrorValidacion, match="Pago bloqueado"):
+        repositorio.registrar_pago(s, tes1, exp["id"], fecha_pago=date(2026, 11, 20),
+                                  monto=exp["monto"], referencia_siaf=" 2026-000125 ")
     pagos = repositorio.listar_pagos(s, tes1, exp["id"])
-    assert len(pagos) == antes + 1
-    assert pagos[-1]["referencia_siaf"] == "2026-000125"
-    eventos = repositorio.linea_de_tiempo(s, tes1, exp["id"])
-    assert eventos[-1]["detalle"]["referencia_siaf"] == "2026-000125"
-    assert repositorio.listar_alertas(s, tes1, expediente_id=exp["id"]) == []
+    assert len(pagos) == antes
 
 
 def test_auditor_no_reevalua(sesion_sembrada):

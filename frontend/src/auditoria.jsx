@@ -11,7 +11,7 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
   const accion = useAccion();
   const implicado = alerta.persona_implicada_id === actor.persona_id;
   const puedeDescargar = implicado || alerta.conformante_id === actor.persona_id;
-  const puedeRevisar = ["tesoreria", "auditor"].includes(actor.rol);
+  const puedeRevisar = alerta.puede_revisar;
 
   function revisar(evento, tipo) {
     evento.preventDefault();
@@ -37,6 +37,8 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
       <article className="panel ficha">
         <div className="acciones">
           {alerta.vigente !== false && <Indicador tono={alerta.severidad === "alta" ? "rojo" : "ambar"}>{SEVERIDADES[alerta.severidad]}</Indicador>}
+          {alerta.bloqueante && alertaPendiente(alerta) && <Indicador tono="rojo">Bloqueante</Indicador>}
+          <Indicador>{AMBITOS[alerta.ambito]}</Indicador>
           <Indicador>{alerta.vigente === false ? "Criterio anterior" : ESTADOS[alerta.estado]}</Indicador>
           <small>Creada el {fechaHora(alerta.creada_en)}</small>
         </div>
@@ -61,9 +63,7 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
           <Campo titulo="Explica lo ocurrido"><textarea name="texto" required /></Campo>
           <div><button className="primario" disabled={accion.pendiente}>Enviar descargo</button></div>
         </form>}
-        {puedeRevisar && (implicado
-          ? <Aviso tipo="advertencia">Figuras como persona implicada. Otra persona debe cerrar o escalar esta alerta.</Aviso>
-          : <form className="panel formulario" onSubmit={(e) => revisar(e)}>
+        {puedeRevisar && <form className="panel formulario" onSubmit={(e) => revisar(e)}>
             <h3>{alerta.estado === "escalada" ? "Cerrar alerta" : "Cerrar o escalar"}</h3>
             <Campo titulo="Motivo (obligatorio)"
               ayuda={alerta.estado === "escalada" ? undefined : "Cierra si la alerta quedó aclarada; escala si necesita revisión de una instancia superior."}>
@@ -72,9 +72,8 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
               <button className="primario" name="accion" value="cierre" disabled={accion.pendiente}>Cerrar alerta</button>
               {alerta.estado !== "escalada" && <button name="accion" value="escalamiento" disabled={accion.pendiente}>Escalar</button>}
             </div>
-          </form>
-        )}
-        {!puedeRevisar && !puedeDescargar && <small>El cierre y el escalamiento corresponden a Tesorería y al OCI.</small>}
+          </form>}
+        {!puedeRevisar && !puedeDescargar && <small>La revisión corresponde a {RESPONSABLES[alerta.ambito]}. Si figuras en esta alerta, debe actuar otra persona.</small>}
       </>}
     </section>
   );
@@ -84,11 +83,15 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
 export function meToca(alerta, actor) {
   if (!alertaPendiente(alerta)) return false;
   const implicado = alerta.persona_implicada_id === actor.persona_id;
-  if (actor.rol === "area_usuaria") {
-    return alerta.estado === "abierta" && (implicado || alerta.conformante_id === actor.persona_id);
-  }
-  return !implicado;
+  const puedePresentarDescargo = alerta.estado === "abierta"
+    && (implicado || alerta.conformante_id === actor.persona_id);
+  return puedePresentarDescargo || alerta.puede_revisar;
 }
+
+const AMBITOS = { operativa_tesoreria: "Ejecución y pago", preventiva_dec: "Preventiva",
+  seguimiento_oci: "Seguimiento OCI" };
+const RESPONSABLES = { operativa_tesoreria: "Tesorería", preventiva_dec: "otro especialista DEC",
+  seguimiento_oci: "OCI" };
 
 const VISTAS_ALERTA = {
   atender: { titulo: "Por atender", filtro: meToca },
@@ -100,8 +103,9 @@ const VISTAS_ALERTA = {
 };
 const AYUDA_ATENDER = {
   area_usuaria: "Alertas abiertas donde puedes presentar descargo",
-  tesoreria: "Alertas sin cerrar en las que no figuras como implicada",
-  auditor: "Alertas sin cerrar en las que no figuras como implicada",
+  tesoreria: "Alertas operativas que puedes revisar",
+  abastecimiento: "Alertas preventivas que puedes revisar",
+  auditor: "Alertas de seguimiento que puedes revisar",
 };
 const prioridad = (a, b) => (a.severidad === b.severidad ? 0 : a.severidad === "alta" ? -1 : 1)
   || String(b.creada_en).localeCompare(String(a.creada_en));
@@ -128,8 +132,10 @@ export function Alertas({ actor }) {
   const { alertas, reglas } = recurso.datos;
   const opciones = Object.fromEntries(Object.entries(reglas).map(([clave, nombre]) => [clave, `${clave} · ${nombre}`]));
   const elegida = alertas.find((a) => String(a.id) === seleccion);
-  const tipo = (params.get("tipo") ?? elegida?.tipo_prestacion) === "bien" ? "bien" : "servicio";
-  const delTipo = alertas.filter((a) => a.tipo_prestacion === tipo);
+  const tipo = params.get("tipo") ?? "todos";
+  const ambito = params.get("ambito") ?? "";
+  const delTipo = alertas.filter((a) => (tipo === "todos" || a.tipo_prestacion === tipo)
+    && (!ambito || a.ambito === ambito));
   const filas = delTipo
     .filter((a) => (!vista || VISTAS_ALERTA[vista].filtro(a, actor)) && (!regla || a.regla === regla))
     .sort(prioridad);
@@ -138,6 +144,8 @@ export function Alertas({ actor }) {
     { titulo: "Severidad", valor: (a) => a.severidad, render: (a) => a.vigente === false ? "—"
       : <Indicador tono={a.severidad === "alta" ? "rojo" : "ambar"}>{SEVERIDADES[a.severidad]}</Indicador> },
     { titulo: "Regla", valor: (a) => a.regla + " · " + nombreAlerta(a, reglas), clase: "celda-texto" },
+    { titulo: "Ámbito", valor: (a) => AMBITOS[a.ambito] },
+    { titulo: "Efecto", valor: (a) => a.bloqueante && alertaPendiente(a) ? "Bloquea" : "Revisión" },
     { titulo: "Expediente", valor: (a) => a.expediente },
     ...(actor.rol === "area_usuaria" ? [] : [{ titulo: "Área", valor: (a) => a.area_sigla }]),
     { titulo: "Estado", valor: (a) => a.vigente === false ? "Criterio anterior" : ESTADOS[a.estado] },
@@ -154,7 +162,12 @@ export function Alertas({ actor }) {
         }))} />
       <div className="barra-filtros">
         <Campo titulo="Tipo de prestación"><select value={tipo} onChange={(e) => cambiar("tipo", e.target.value)}>
+          <option value="todos">Todos</option>
           <option value="servicio">Servicios</option><option value="bien">Bienes</option>
+        </select></Campo>
+        <Campo titulo="Ámbito"><select value={ambito} onChange={(e) => cambiar("ambito", e.target.value)}>
+          <option value="">Todos los ámbitos</option>
+          {Object.entries(AMBITOS).map(([clave, nombre]) => <option key={clave} value={clave}>{nombre}</option>)}
         </select></Campo>
         <Campo titulo="Regla"><select value={regla} onChange={(e) => cambiar("regla", e.target.value)}>
           <option value="">Todas las reglas</option>

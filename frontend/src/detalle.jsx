@@ -102,7 +102,7 @@ function ComunicarObservacion({ expediente, observaciones, recargar }) {
   );
 }
 
-function RevisionDec({ expediente, recargar }) {
+function RevisionDec({ expediente, conformidad, recargar }) {
   const accion = useAccion();
   const [favorable, setFavorable] = useState(true);
   if (expediente.revision_dec) {
@@ -114,7 +114,8 @@ function RevisionDec({ expediente, recargar }) {
     evento.preventDefault();
     const datos = Object.fromEntries(new FormData(evento.currentTarget));
     accion.ejecutar(async () => {
-      await api(`/expedientes/${expediente.id}/revision`, { method: "POST", data: { ...datos, favorable } });
+      await api(`/expedientes/${expediente.id}/revision`, { method: "POST", data: {
+        ...datos, favorable, advertencias_revisadas: datos.advertencias_revisadas === "on" } });
       recargar();
       return favorable ? "Revisión registrada: lista para derivar." : "Conformidad devuelta.";
     });
@@ -123,13 +124,18 @@ function RevisionDec({ expediente, recargar }) {
     <details className="panel desplegable" open>
       <summary>Revisar la conformidad emitida</summary>
       <form className="formulario" onSubmit={enviar}>
-        <Aviso>La derivación es una referencia simulada. El devengado y el pago siguen fuera de Conforme.</Aviso>
+        <Aviso>La referencia de derivación es simulada. El devengado se consulta en SIAF; Conforme registra el pago reportado tras verificar sus requisitos.</Aviso>
         <Campo titulo="Resultado"><select value={favorable ? "si" : "no"} onChange={(e) => setFavorable(e.target.value === "si")}>
           <option value="si">Favorable: lista para derivar</option>
           <option value="no">Con discrepancia: devolver al área usuaria</option>
         </select></Campo>
         {favorable && <Campo titulo="Referencia de derivación (simulada)"><input name="referencia_derivacion" maxLength={120} placeholder="SIM-DER-001" required /></Campo>}
         <Campo titulo="Motivo"><textarea name="motivo" maxLength={1000} required /></Campo>
+        {conformidad.verificacion_evidencias?.hallazgos?.length > 0 && <Aviso tipo="advertencia">
+          <strong>Señales en los archivos:</strong><ul>{conformidad.verificacion_evidencias.hallazgos.map((h) => <li key={h}>{h}</li>)}</ul>
+        </Aviso>}
+        {favorable && conformidad.verificacion_evidencias?.hallazgos?.length > 0 &&
+          <label className="casilla"><input type="checkbox" name="advertencias_revisadas" required /> Revisé estas señales y dejé mi conclusión en el motivo.</label>}
         <EstadoAccion accion={accion} />
         <div><button className="primario" disabled={accion.pendiente}>{favorable ? "Registrar revisión" : "Devolver conformidad"}</button></div>
       </form>
@@ -137,8 +143,9 @@ function RevisionDec({ expediente, recargar }) {
   );
 }
 
-function ConfirmarOrden({ expediente, seleccionado, recargar }) {
+function ConfirmarOrden({ expediente, seleccionado, entregables, recargar }) {
   const accion = useAccion();
+  const faltanCriterios = entregables.some((e) => !e.criterio_evidencia) || !entregables.length;
   function enviar(evento) {
     evento.preventDefault();
     const datos = Object.fromEntries(new FormData(evento.currentTarget));
@@ -154,6 +161,7 @@ function ConfirmarOrden({ expediente, seleccionado, recargar }) {
       <h3>Registrar la orden de servicio</h3>
       <p className="secundario">La orden se emite a favor de <strong>{seleccionado.razon_social}</strong> por{" "}
         {soles(seleccionado.monto_cotizado)} y {seleccionado.plazo_dias} días, como se aprobó. No puedes cambiar el proveedor.</p>
+      {faltanCriterios && <Aviso tipo="advertencia">Define la evidencia exigida para cada entregable antes de emitir la orden. <Link href={`${rutaExpediente(expediente.id)}/tdr`}>Ir al TDR</Link></Aviso>}
       <div className="rejilla tres">
         <Campo titulo="N.º de orden de servicio"><input name="numero_orden" placeholder="OS-2026-00301" maxLength={60} required /></Campo>
         <Campo titulo="Fecha de la orden"><input name="fecha_orden" type="date" defaultValue={hoy()} max={hoy()}
@@ -161,12 +169,12 @@ function ConfirmarOrden({ expediente, seleccionado, recargar }) {
         <Campo titulo="Inicio pactado (opcional)"><input name="fecha_inicio_prestacion" type="date" min={expediente.fecha_requerimiento} /></Campo>
       </div>
       <EstadoAccion accion={accion} />
-      <div><button className="primario" disabled={accion.pendiente}><Stamp size={16} /> Registrar orden</button></div>
+      <div><button className="primario" disabled={accion.pendiente || faltanCriterios}><Stamp size={16} /> Registrar orden</button></div>
     </form>
   );
 }
 
-function SeleccionProveedor({ expediente, seleccion, actor, recargar }) {
+function SeleccionProveedor({ expediente, seleccion, entregables, actor, recargar }) {
   if (!seleccion) return null;
   const { seleccionado } = seleccion;
   const puedeVerEvaluacion = ["abastecimiento", "tesoreria", "auditor"].includes(actor.rol);
@@ -190,7 +198,7 @@ function SeleccionProveedor({ expediente, seleccion, actor, recargar }) {
       </div>
       {resumen && <p>{resumen}</p>}
       {estado === "seleccion_aprobada" && actor.rol === "area_usuaria" && seleccionado &&
-        <ConfirmarOrden expediente={expediente} seleccionado={seleccionado} recargar={recargar} />}
+        <ConfirmarOrden expediente={expediente} seleccionado={seleccionado} entregables={entregables} recargar={recargar} />}
       {estado === "seleccion_aprobada" && actor.rol !== "area_usuaria" &&
         <Aviso>Selección aprobada. Falta que el área usuaria registre la orden.</Aviso>}
     </section>
@@ -219,7 +227,7 @@ function Observacion({ registro }) {
   );
 }
 
-function Entregables({ expediente, conformidad, entregables, observaciones, actor, recargar }) {
+function Entregables({ expediente, conformidad, historial, entregables, observaciones, actor, recargar }) {
   const [mostrar, setMostrar] = useState(false);
   const porObservar = entregables.filter((item) => !observaciones.has(item.id));
   return (
@@ -227,11 +235,25 @@ function Entregables({ expediente, conformidad, entregables, observaciones, acto
       <h2>Entregables y conformidad</h2>
       {!tieneOrden(expediente) ? <Aviso>Estos son los entregables del requerimiento. La conformidad se registra después de la orden.</Aviso>
       : conformidad ? <>
-        <p>Conformidad registrada por <strong>{conformidad.conformante}</strong> el {fecha(conformidad.fecha_conformidad)}
+        <p>Conformidad v{conformidad.version} registrada por <strong>{conformidad.conformante}</strong> el {fecha(conformidad.fecha_conformidad)}
           {" · "}Penalidad aplicada de {soles(conformidad.penalidad_aplicada)}</p>
+        {conformidad.estado_revision_dec === "devuelta" && <Aviso tipo="advertencia">
+          Devuelta por Abastecimiento: {conformidad.motivo_revision_dec}. El área debe emitir una nueva versión.
+          {actor.rol === "area_usuaria" && <Link href={`${rutaExpediente(expediente.id)}/conformidad`}> Corregir conformidad</Link>}
+        </Aviso>}
+        {conformidad.sustento_penalidad && <p><strong>Sustento de penalidad:</strong> {conformidad.sustento_penalidad}</p>}
         {conformidad.observaciones && <p className="secundario">Observaciones: {conformidad.observaciones}</p>}
+        {conformidad.verificacion_evidencias?.coherencia_ia && <div className="panel ficha">
+          <strong>Comparación de evidencias con IA:</strong>{" "}
+          {conformidad.verificacion_evidencias.coherencia_ia.estado === "completada"
+            ? "realizada; Abastecimiento debe revisar el resultado y los archivos."
+            : "no se completó; Abastecimiento debe revisar los archivos."}
+          {conformidad.verificacion_evidencias.coherencia_ia.revisiones?.length > 0 &&
+            <ul>{conformidad.verificacion_evidencias.coherencia_ia.revisiones.map((r) =>
+              <li key={r.entregable_id}>Entregable {r.numero}: {r.estado}. {r.explicacion}</li>)}</ul>}
+        </div>}
         {conformidad.codigo_sello && <Sello conformidad={conformidad} id={expediente.id} />}
-        {actor.rol === "abastecimiento" && <RevisionDec expediente={expediente} recargar={recargar} />}
+        {actor.rol === "abastecimiento" && <RevisionDec expediente={expediente} conformidad={conformidad} recargar={recargar} />}
         {actor.rol === "area_usuaria" && <div className="acciones">
           <Link className="boton" href={`${rutaExpediente(expediente.id)}/tdr`}><FileText size={16} /> Historial de TDR</Link>
         </div>}
@@ -246,6 +268,14 @@ function Entregables({ expediente, conformidad, entregables, observaciones, acto
           <RegistrarObservacion expediente={expediente} entregables={porObservar} recargar={recargar} />
         )}
       </>}
+      {historial.length > 1 && <details className="panel desplegable">
+        <summary>Versiones de la conformidad ({historial.length})</summary>
+        <ul className="lista-simple">{historial.map((v) => <li key={v.id}>
+          v{v.version} · {fecha(v.fecha_conformidad)} · {v.estado_revision_dec === "devuelta" ? "Devuelta"
+            : v.estado_revision_dec === "favorable" ? "Favorable" : "Pendiente"}
+          {v.codigo_sello && <> · <Link href={`/verificar?c=${encodeURIComponent(v.codigo_sello)}`}>Ver sello</Link></>}
+        </li>)}</ul>
+      </details>}
       {entregables.some((item) => item.evidencias.length > 0) && (
         <label className="casilla"><input type="checkbox" checked={mostrar} onChange={(e) => setMostrar(e.target.checked)} /> Mostrar evidencias</label>
       )}
@@ -253,6 +283,7 @@ function Entregables({ expediente, conformidad, entregables, observaciones, acto
         {entregables.map((item) => (
           <article className="panel ficha" key={item.id}>
             <div className="fila-titulo"><h3>{item.numero}. {item.descripcion}</h3><EstadoEntregable item={item} /></div>
+            {item.criterio_evidencia && <p className="secundario"><strong>Evidencia exigida:</strong> {item.criterio_evidencia}</p>}
             {observaciones.has(item.id) && <Observacion registro={observaciones.get(item.id)} />}
             {item.observacion && !observaciones.get(item.id)?.subsanacion && <p className="secundario">Observación en la conformidad: {item.observacion}</p>}
             {item.cumplido != null && !item.evidencias.length && <small>Sin archivos adjuntos.</small>}
@@ -308,8 +339,10 @@ function AlertasDelExpediente({ expediente, alertas, reglas, actor, recargar }) 
   );
 }
 
-function Pagos({ expediente, conformidad, abiertas, pendientes, pagos, actor, recargar }) {
+function Pagos({ expediente, conformidad, abiertas, pendientes, pagos, actor, verificacion, recargar }) {
   const accion = useAccion();
+  const [descontada, setDescontada] = useState(conformidad?.penalidad_aplicada ?? "0");
+  const penalidadInsuficiente = Number(descontada) < Number(verificacion?.penalidad_minima ?? 0);
   function registrar(evento) {
     evento.preventDefault();
     const form = evento.currentTarget;
@@ -333,11 +366,16 @@ function Pagos({ expediente, conformidad, abiertas, pendientes, pagos, actor, re
       </> : <p className="vacio">Sin pagos registrados.</p>}
       {actor.rol === "tesoreria" && tieneOrden(expediente) && (
         <details className="panel desplegable" id="registrar-pago">
-          <summary>Registrar pago efectuado</summary>
+          <summary>Verificación previa y registro de pago</summary>
+          <h3>Controles obligatorios</h3>
+          {verificacion ? <ol className="lista-simple">{verificacion.controles.map((control) => <li key={control.nombre}>
+            <Indicador tono={control.correcto ? "verde" : "rojo"}>{control.correcto ? "Conforme" : "Bloqueado"}</Indicador>
+            {" "}<strong>{control.nombre}</strong>
+            {!control.correcto && <p>{control.detalle} Responsable: {control.responsable}.</p>}
+          </li>)}</ol> : <p>Comprobando requisitos del pago…</p>}
           <form className="formulario" onSubmit={registrar}>
-            {abiertas > 0 && <Aviso tipo="advertencia">Hay {abiertas} alertas pendientes de revisión.</Aviso>}
-            {pendientes > 0 && <Aviso tipo="advertencia">Hay observaciones pendientes en los entregables.</Aviso>}
-            {!conformidad && <Aviso tipo="advertencia">Si registras este pago sin conformidad previa, se genera la alerta R5.</Aviso>}
+            {verificacion && !verificacion.apto && <Aviso tipo="advertencia">Resuelve los controles bloqueados antes de registrar el pago.</Aviso>}
+            {penalidadInsuficiente && <Aviso tipo="advertencia">La penalidad descontada no puede ser menor que la aplicada en la conformidad.</Aviso>}
             <div className="rejilla tres">
               <Campo titulo="Fecha de pago"><input name="fecha_pago" type="date" defaultValue={hoy()} required /></Campo>
               <Campo titulo="Monto pagado (S/)" ayuda={`Monto de la orden: ${soles(expediente.monto)}`}>
@@ -345,12 +383,12 @@ function Pagos({ expediente, conformidad, abiertas, pendientes, pagos, actor, re
               <Campo titulo="Penalidad descontada (S/)"
                 ayuda={conformidad ? `Penalidad aplicada en la conformidad: ${soles(conformidad.penalidad_aplicada)}` : undefined}>
                 <input name="penalidad_descontada" type="number" min="0" step="0.01"
-                  defaultValue={conformidad?.penalidad_aplicada ?? "0"} required /></Campo>
+                  value={descontada} onChange={(e) => setDescontada(e.target.value)} required /></Campo>
               <Campo titulo="Referencia SIAF (opcional)">
                 <input name="referencia_siaf" maxLength={60} /></Campo>
             </div>
             <EstadoAccion accion={accion} />
-            <div><button className="primario" disabled={accion.pendiente}>Registrar pago</button></div>
+            <div><button className="primario" disabled={accion.pendiente || !verificacion?.apto || penalidadInsuficiente}>Registrar pago</button></div>
           </form>
         </details>
       )}
@@ -391,11 +429,20 @@ function abrirRegistroPago() {
 }
 
 /** Qué le toca hacer a quien mira el expediente, según su rol y el estado. */
-function Siguiente({ actor, expediente, conformidad, entregables, pendientes, alertas, pagos }) {
+function Siguiente({ actor, expediente, conformidad, entregables, pendientes, alertas, pagos, verificacion }) {
   const ruta = rutaExpediente(expediente.id);
   const sinCerrar = alertas.filter(alertaPendiente);
   const estado = expediente.estado_flujo;
   if (!tieneOrden(expediente)) {
+    if (["requerimiento", "tdr_observado"].includes(estado)
+      && ["area_usuaria", "abastecimiento"].includes(actor.rol)) {
+      return <ProximoPaso tono={estado === "tdr_observado" ? "advertencia" : "info"}
+        titulo={estado === "tdr_observado" ? "Hay observaciones del TDR por atender" : "Falta analizar el TDR"}
+        acciones={<Link className="boton primario" href={`${ruta}/tdr`}><FileText size={16} /> Revisar TDR</Link>}>
+        {actor.rol === "area_usuaria" ? "Analiza el documento con IA y responde las observaciones técnicas."
+          : "Revisa el TDR y registra observaciones técnicas antes de evaluar proveedores."}
+      </ProximoPaso>;
+    }
     if (actor.rol === "area_usuaria") {
       return estado === "seleccion_aprobada"
         ? <ProximoPaso titulo="Registra la orden de servicio"
@@ -412,6 +459,11 @@ function Siguiente({ actor, expediente, conformidad, entregables, pendientes, al
     return null;
   }
   if (actor.rol === "area_usuaria") {
+    if (conformidad?.estado_revision_dec === "devuelta") {
+      return <ProximoPaso tono="advertencia" titulo="Corrige la conformidad devuelta"
+        acciones={<Link className="boton primario" href={`${ruta}/conformidad`}>Emitir versión corregida</Link>}>
+        {conformidad.motivo_revision_dec}</ProximoPaso>;
+    }
     if (!conformidad && !entregables.length) {
       return <ProximoPaso titulo="Faltan los entregables"
         acciones={<Link className="boton primario" href={`${ruta}/tdr`}><FileText size={16} /> Revisar TDR<InsigniaIA /></Link>} />;
@@ -436,6 +488,11 @@ function Siguiente({ actor, expediente, conformidad, entregables, pendientes, al
     return null;
   }
   if (actor.rol === "tesoreria" && !pagos.length) {
+    if (!verificacion?.apto) {
+      return <ProximoPaso tono="advertencia" titulo="El pago tiene controles pendientes"
+        acciones={<a className="boton" href="#pagos">Ver los seis controles</a>}>
+        Revisa qué falta y quién debe resolverlo antes de registrar el pago.</ProximoPaso>;
+    }
     if (!conformidad) {
       return <ProximoPaso tono="advertencia" titulo="Falta la conformidad del área usuaria"
         acciones={pendientes > 0 && <a className="boton" href="#entregables">Ver observaciones</a>}>
@@ -488,8 +545,10 @@ function EstadoTramite({ expediente, conformidad, pagos }) {
 export function Detalle({ actor }) {
   const { id } = useParams();
   const recurso = useDatos(`/expedientes/${id}`);
+  const verificacion = useDatos(actor.rol === "tesoreria" && recurso.datos?.expediente?.fecha_orden
+    ? `/expedientes/${id}/verificacion-pago` : null);
   if (!recurso.datos) return <><Volver to="/expedientes">Expedientes</Volver><Carga recurso={recurso} /></>;
-  const { expediente, conformidad, fecha_limite, plazo_maximo_conformidad, entregables, alertas, reglas, pagos, eventos,
+  const { expediente, conformidad, historial_conformidades, fecha_limite, plazo_maximo_conformidad, entregables, alertas, reglas, pagos, eventos,
     seleccion } = recurso.datos;
   const conOrden = tieneOrden(expediente);
   const [estadoTexto, estadoQuien, estadoTono] = ESTADOS_FLUJO[expediente.estado_flujo] ?? [expediente.estado_flujo, "", "neutro"];
@@ -516,8 +575,8 @@ export function Detalle({ actor }) {
       <div className="acciones"><a className="boton" href={`/api/expedientes/${expediente.id}/reporte`}>
         <Download size={16} /> Reporte de trazabilidad (PDF)</a></div>
       <Siguiente actor={actor} expediente={expediente} conformidad={conformidad} entregables={entregables} pendientes={pendientes}
-        alertas={alertas} pagos={pagos} />
-      <SeleccionProveedor expediente={expediente} seleccion={seleccion} actor={actor} recargar={recurso.recargar} />
+        alertas={alertas} pagos={pagos} verificacion={verificacion.datos} />
+      <SeleccionProveedor expediente={expediente} seleccion={seleccion} entregables={entregables} actor={actor} recargar={recurso.recargar} />
       <nav className="indice" aria-label="Secciones del expediente">
         <a href="#datos">{conOrden ? "Datos de la orden" : "Datos del requerimiento"}</a>
         {seleccion && <a href="#seleccion">Selección del proveedor</a>}
@@ -549,11 +608,12 @@ export function Detalle({ actor }) {
         </p>}
       </section>
       {sinEvidencia.length > 0 && <Aviso tipo="advertencia">Entregables dados por cumplidos sin evidencia: {sinEvidencia.map((e) => e.numero).join(", ")}.</Aviso>}
-      <Entregables key={expediente.id} expediente={expediente} conformidad={conformidad} entregables={entregables}
+      <Entregables key={expediente.id} expediente={expediente} conformidad={conformidad} historial={historial_conformidades}
+        entregables={entregables}
         observaciones={observaciones} actor={actor} recargar={recurso.recargar} />
       <AlertasDelExpediente expediente={expediente} alertas={alertas} reglas={reglas} actor={actor} recargar={recurso.recargar} />
       <Pagos expediente={expediente} conformidad={conformidad} abiertas={abiertas} pendientes={pendientes}
-        pagos={pagos} actor={actor} recargar={recurso.recargar} />
+        pagos={pagos} actor={actor} verificacion={verificacion.datos} recargar={recurso.recargar} />
       <LineaDeTiempo eventos={eventos} />
     </>
   );

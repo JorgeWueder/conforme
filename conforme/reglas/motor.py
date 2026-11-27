@@ -174,6 +174,8 @@ def sincronizar(
                     severidad=normativa.SEVERIDAD_POR_REGLA[p.regla],
                     explicacion=p.explicacion, datos=p.datos,
                     persona_implicada_id=p.persona_implicada_id,
+                    ambito=normativa.AMBITO_POR_REGLA[p.regla],
+                    bloqueante=p.regla in normativa.BLOQUEANTES_POR_REGLA,
                     estado=ESTADO_ABIERTA, creada_en=ts, actualizada_en=ts,
                 )
                 sesion.add(alerta)
