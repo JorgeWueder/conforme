@@ -1,0 +1,42 @@
+# Blueprint de Render: un solo servicio Docker (Next.js público + FastAPI en loopback).
+# En Render: New > Blueprint > elige este repositorio. Los valores con sync: false
+# se piden en el panel al crear el servicio; no se versionan.
+services:
+  - type: web
+    name: conforme
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /api/salud
+    envVars:
+      - key: DATABASE_URL          # rama "demo" de Neon (URL con pooler)
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: BASE_URL              # URL pública, p. ej. https://conforme.onrender.com
+        sync: false
+      - key: LLM_PROVIDER
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CONFORME_EVE_URL
+        sync: false
+      - key: CONFORME_EVE_TOKEN
+        sync: false
+      - key: PREVENCION_BRAVE_API_KEY
+        sync: false
+      - key: PREVENCION_DEMO
+        value: "1"
+      - key: ADAPTADOR_FUENTES
+        value: simulado
+      - key: ADAPTADOR_SIAF
+        value: simulado
+      - key: ADAPTADOR_NOTIFICACIONES
+        value: bandeja
