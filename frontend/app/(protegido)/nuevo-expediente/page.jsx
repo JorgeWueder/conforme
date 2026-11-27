@@ -1,4 +1,4 @@
-import { VistaOrden } from "../../../src/vistas";
+import { VistaRequerimiento } from "../../../src/vistas";
 
-export const metadata = { title: "Registrar orden" };
-export default VistaOrden;
+export const metadata = { title: "Nuevo requerimiento" };
+export default VistaRequerimiento;

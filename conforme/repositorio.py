@@ -99,6 +99,7 @@ def _consulta_expedientes(actor: Actor):
             _NOMBRE_PERSONA.label("solicitante"),
             Expediente.solicitante_id,
             Expediente.numero_orden,
+            Expediente.estado_flujo,
             Expediente.proyecto_referencia,
             Expediente.conformidad_plazo_especial,
             Expediente.fecha_requerimiento,
@@ -107,7 +108,8 @@ def _consulta_expedientes(actor: Actor):
             Expediente.plazo_dias,
             Expediente.fecha_entrega_real,
             Expediente.monto,
-            exists().where(Conformidad.expediente_id == Expediente.id).label("tiene_conformidad"),
+            exists().where(Conformidad.expediente_id == Expediente.id, Conformidad.vigente)
+            .label("tiene_conformidad"),
             exists().where(Pago.expediente_id == Expediente.id).label("tiene_pago"),
             observaciones_pendientes.label("observaciones_pendientes"),
             sin_comunicar.label("observaciones_sin_comunicar"),
@@ -116,7 +118,7 @@ def _consulta_expedientes(actor: Actor):
             _alertas_sin_cerrar(SEVERIDAD_MEDIA).label("alertas_medias"),
         )
         .join(Area, Area.id == Expediente.area_id)
-        .join(Proveedor, Proveedor.id == Expediente.proveedor_id)
+        .outerjoin(Proveedor, Proveedor.id == Expediente.proveedor_id)
         .join(Persona, Persona.id == Expediente.solicitante_id)
         .where(filtro_expedientes(actor))
     )
@@ -135,7 +137,8 @@ def listar_expedientes(sesion: Session, actor: Actor, texto: str | None = None) 
                 Proveedor.razon_social.ilike(patron),
             )
         )
-    filas = sesion.execute(consulta.order_by(Expediente.fecha_orden.desc(), Expediente.id.desc()))
+    filas = sesion.execute(consulta.order_by(
+        Expediente.fecha_orden.desc().nulls_first(), Expediente.id.desc()))
     return [_fila_expediente(f) for f in filas]
 
 
@@ -208,6 +211,18 @@ def _expediente_en_alcance(
     if expediente is None:
         raise PermisoDenegado("Expediente inexistente o fuera de tu alcance.")
     return expediente
+
+
+def _exigir_orden(expediente: Expediente) -> None:
+    if expediente.proveedor_id is None:
+        raise ErrorValidacion(
+            "El expediente aún no tiene orden: primero se evalúa y aprueba la selección del proveedor.")
+
+
+def _cambiar_estado(expediente: Expediente, nuevo: str, *, desde: tuple[str, ...] | None = None) -> None:
+    """Avanza el estado del flujo. Con `desde`, solo si el estado actual está en esa lista."""
+    if desde is None or expediente.estado_flujo in desde:
+        expediente.estado_flujo = nuevo
 
 
 def _monto(valor, nombre: str, *, permite_cero: bool) -> Decimal:
@@ -303,6 +318,77 @@ def crear_expediente(
     return expediente.id
 
 
+def crear_requerimiento(
+    sesion: Session, actor: Actor, *, tipo: str, descripcion: str, fecha_requerimiento: date,
+    plazo_dias: int, monto, entregables: list[dict], origen_entregables: str = "manual",
+    proyecto_referencia: str | None = None, conformidad_plazo_especial: bool = False,
+    postores: list[dict] | None = None,
+) -> int:
+    """Alta de un requerimiento del área del actor: sin proveedor ni orden.
+
+    El monto es el valor estimado. Los postores (cotizaciones referenciales) son opcionales;
+    Abastecimiento los completa y evalúa. El área usuaria no elige al proveedor.
+    """
+    exigir_rol(actor, ROL_AREA_USUARIA)
+    from conforme.proveedores import repositorio as evaluacion  # evita una importación circular
+    descripcion = (descripcion or "").strip()
+    if tipo not in ("bien", "servicio"):
+        raise ErrorValidacion("El tipo debe ser «bien» o «servicio».")
+    if not descripcion:
+        raise ErrorValidacion("Describe qué se necesita contratar.")
+    proyecto = (proyecto_referencia or "").strip()
+    if len(proyecto) > 120:
+        raise ErrorValidacion("La referencia del proyecto admite hasta 120 caracteres.")
+    if fecha_requerimiento > date.today():
+        raise ErrorValidacion("La fecha del requerimiento no puede ser futura.")
+    if not isinstance(plazo_dias, int) or plazo_dias <= 0:
+        raise ErrorValidacion("El plazo debe ser un número entero de días mayor que cero.")
+    monto = _monto(monto, "Valor estimado", permite_cero=False)
+    if origen_entregables not in ("manual", "csv", "tdr"):
+        raise ErrorValidacion("Origen de entregables no admitido.")
+    if origen_entregables == "tdr" and entregables:
+        raise ErrorValidacion("Los entregables de los TDR se añaden después de aprobar la propuesta.")
+    limpios, errores = ([], []) if origen_entregables == "tdr" else validacion_entregables.validar(entregables)
+    if errores:
+        raise ErrorValidacion("Entregables: " + " ".join(errores))
+
+    prefijo = f"EXP-{fecha_requerimiento.year}-"
+    ultimo = sesion.execute(
+        select(func.max(Expediente.codigo)).where(Expediente.codigo.like(prefijo + "%"))
+    ).scalar_one_or_none()
+    codigo = f"{prefijo}{(int(ultimo[len(prefijo):]) if ultimo else 0) + 1:04d}"
+    expediente = Expediente(
+        codigo=codigo, tipo=tipo, descripcion=descripcion, area_id=actor.area_id,
+        proveedor_id=None, solicitante_id=actor.persona_id, numero_orden=None,
+        estado_flujo="en_evaluacion_proveedores",
+        proyecto_referencia=proyecto or None, conformidad_plazo_especial=conformidad_plazo_especial,
+        fecha_requerimiento=fecha_requerimiento, fecha_orden=None, fecha_inicio_prestacion=None,
+        plazo_dias=plazo_dias, fecha_entrega_real=None, monto=monto, creado_en=datetime.now(timezone.utc),
+    )
+    sesion.add(expediente)
+    sesion.flush()
+    sesion.add_all(
+        Entregable(expediente_id=expediente.id, numero=e["numero"],
+                   descripcion=e["descripcion"], origen=origen_entregables)
+        for e in limpios
+    )
+    sesion.flush()
+    evaluacion.insertar_postores(sesion, actor, expediente, postores or [])
+    bitacora.registrar(
+        sesion, actor_id=actor.persona_id, accion="requerimiento.registrado",
+        entidad="expediente", entidad_id=expediente.id, expediente_id=expediente.id,
+        detalle={
+            "codigo": codigo, "valor_estimado": monto, "plazo_dias": plazo_dias,
+            "entregables": len(limpios), "postores": len(postores or []),
+            "proyecto_referencia": proyecto or None, "origen_entregables": origen_entregables,
+            "resumen": f"Requerimiento registrado con {len(limpios)} entregables y "
+                       f"{len(postores or [])} cotizaciones referenciales. Pasa a Abastecimiento "
+                       "para evaluar a los posibles proveedores.",
+        },
+    )
+    return expediente.id
+
+
 # --- F2: entregables, conformidad y evidencias --------------------------------
 
 def _observaciones_de_entrega(sesion: Session, expediente_id: int) -> dict[int, int]:
@@ -319,7 +405,8 @@ def registrar_observacion_de_entrega(
     sesion: Session, actor: Actor, expediente_id: int, *, entregable_id: int, texto: str,
 ) -> None:
     exigir_rol(actor, ROL_AREA_USUARIA)
-    _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
+    expediente = _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
+    _exigir_orden(expediente)
     if sesion.scalar(select(Conformidad.id).where(Conformidad.expediente_id == expediente_id)):
         raise ErrorValidacion("Registra la observación antes de guardar la conformidad.")
     entregable = sesion.scalar(select(Entregable).where(
@@ -330,6 +417,7 @@ def registrar_observacion_de_entrega(
     if entregable_id in _observaciones_de_entrega(sesion, expediente_id):
         raise ErrorValidacion("El entregable ya tiene una observación registrada.")
     texto = _texto_obligatorio(texto, "La observación")
+    _cambiar_estado(expediente, "observado", desde=("orden_registrada", "en_ejecucion"))
     bitacora.registrar(
         sesion, actor_id=actor.persona_id, accion=_ENTREGA_OBSERVADA,
         entidad="entregable", entidad_id=entregable.id, expediente_id=expediente_id,
@@ -347,7 +435,8 @@ def indicadores(sesion: Session, actor: Actor) -> dict:
         "expedientes": len(expedientes),
         "por_semaforo": por(expedientes, "semaforo"),
         "con_conformidad": len(con_conformidad),
-        "sin_conformidad": len(expedientes) - len(con_conformidad),
+        "antes_de_la_orden": sum(1 for x in expedientes if x["numero_orden"] is None),
+        "sin_conformidad": sum(1 for x in expedientes if x["numero_orden"] is not None and not x["tiene_conformidad"]),
         "con_observaciones_pendientes": sum(1 for x in expedientes if x["observaciones_pendientes"] > 0),
         "observaciones_sin_comunicar": sum(max(x["observaciones_sin_comunicar"], 0) for x in expedientes),
         "revision_pendiente": sum(1 for x in con_conformidad if x["revision_dec"] is None),
@@ -406,8 +495,10 @@ def revisar_conformidad(
     La derivación es una referencia simulada; el pago y el devengado siguen fuera de Conforme.
     """
     exigir_rol(actor, ROL_ABASTECIMIENTO)
-    _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
-    if not sesion.scalar(select(Conformidad.id).where(Conformidad.expediente_id == expediente_id)):
+    expediente = _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
+    conformidad = sesion.scalar(select(Conformidad).where(
+        Conformidad.expediente_id == expediente_id, Conformidad.vigente))
+    if conformidad is None:
         raise ErrorValidacion("El expediente aún no tiene conformidad que revisar.")
     if sesion.scalar(select(Bitacora.id).where(
         Bitacora.expediente_id == expediente_id,
@@ -418,6 +509,12 @@ def revisar_conformidad(
     referencia = (referencia_derivacion or "").strip()
     if favorable and not referencia:
         raise ErrorValidacion("Indica la referencia de derivación (simulada) del expediente.")
+    conformidad.estado_revision_dec = "favorable" if favorable else "devuelta"
+    conformidad.referencia_derivacion = referencia if favorable else None
+    conformidad.motivo_revision_dec = motivo
+    conformidad.revisado_dec_por = actor.persona_id
+    conformidad.revisado_dec_en = datetime.now(timezone.utc)
+    _cambiar_estado(expediente, "derivado_tesoreria" if favorable else "conformidad_devuelta")
     bitacora.registrar(
         sesion, actor_id=actor.persona_id,
         accion=_CONFORMIDAD_REVISADA if favorable else _CONFORMIDAD_DEVUELTA,
@@ -472,7 +569,7 @@ def obtener_conformidad(sesion: Session, actor: Actor, expediente_id: int) -> di
             Conformidad.codigo_sello, Conformidad.sello_hash, Conformidad.sello_bitacora_id,
         )
         .join(Persona, Persona.id == Conformidad.conformante_id)
-        .where(Conformidad.expediente_id == expediente_id)
+        .where(Conformidad.expediente_id == expediente_id, Conformidad.vigente)
     ).first()
     return dict(fila._mapping) if fila else None
 
@@ -504,6 +601,7 @@ def registrar_conformidad(
     """
     exigir_rol(actor, ROL_AREA_USUARIA)
     expediente = _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
+    _exigir_orden(expediente)
     if sesion.execute(
         select(Conformidad.id).where(Conformidad.expediente_id == expediente.id)
     ).first():
@@ -551,6 +649,7 @@ def registrar_conformidad(
 
     ahora = datetime.now(timezone.utc)
     expediente.fecha_entrega_real = entrega
+    _cambiar_estado(expediente, "conformidad_emitida")
     conformidad = Conformidad(
         expediente_id=expediente.id, conformante_id=actor.persona_id,
         fecha_conformidad=fecha_conformidad, observaciones=(observaciones or "").strip(),
@@ -630,7 +729,8 @@ def registrar_pago(
 ) -> int:
     """Registra un pago. Solo tesorería. No se bloquea: si falta conformidad, alerta (R5)."""
     exigir_rol(actor, ROL_TESORERIA)
-    expediente = _expediente_en_alcance(sesion, actor, expediente_id)
+    expediente = _expediente_en_alcance(sesion, actor, expediente_id, bloquear=True)
+    _exigir_orden(expediente)
     monto = _monto(monto, "Monto pagado", permite_cero=False)
     penalidad = _monto(penalidad_descontada, "Penalidad descontada", permite_cero=True)
     referencia = (referencia_siaf or "").strip()
@@ -645,6 +745,7 @@ def registrar_pago(
         registrado_en=datetime.now(timezone.utc),
     )
     sesion.add(pago)
+    _cambiar_estado(expediente, "pagado")
     sesion.flush()
     bitacora.registrar(
         sesion, actor_id=actor.persona_id, accion="pago.registrado", entidad="pago",

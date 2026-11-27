@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  BarChart3, Bell, ClipboardCheck, Database, FileText, FlaskConical, FolderOpen,
+  BarChart3, Bell, ClipboardCheck, Database, FileSearch, FileText, FlaskConical, FolderOpen,
   LogOut, Menu, Plus, QrCode, ScanSearch, ShieldCheck, X,
 } from "lucide-react";
 import { useState } from "react";
@@ -30,22 +30,28 @@ export function Marco({ actor, cerrarSesion, children }) {
   const abierto = menuEnRuta === ruta;
   const rutaMenu = ruta.endsWith("/conformidad") ? "/conformidad" :
     ruta.endsWith("/tdr") ? "/lectura-ia" : ruta;
+  const rol = actor?.rol;
+  const evaluaciones = useDatos(rol === "abastecimiento" && ruta ? `/evaluaciones?panel=${encodeURIComponent(ruta)}` : null);
+  const porEvaluar = evaluaciones.datos?.filter((f) => f.me_toca_revisar
+    || (f.estado_flujo === "en_evaluacion_proveedores" && (f.soy_evaluador || !f.evaluador_id))).length ?? 0;
   const alertas = useDatos(actor && ruta ? `/alertas?panel=${encodeURIComponent(ruta)}` : null);
   const porAtender = alertas.datos?.alertas.filter((a) => a.tipo_prestacion === "servicio" && meToca(a, actor)).length ?? 0;
+  // Mapa de módulos por rol (PLAN.md, sección 5). El expediente es el eje de todo.
   const grupos = [
     ["Contratación", [
-      ...(actor?.rol === "abastecimiento" ? [["/prevencion", "Revisión previa", ScanSearch]] : []),
       ["/expedientes", "Expedientes", FolderOpen],
-      ...(actor?.rol === "area_usuaria" ? [
-        ["/nuevo-expediente", "Registrar orden", Plus],
-        ["/lectura-ia", "Revisar TDR", FileText],
+      ...(rol === "area_usuaria" ? [
+        ["/nuevo-expediente", "Nuevo requerimiento", Plus],
+        ["/lectura-ia", "Lectura de TDR", FileText],
         ["/conformidad", "Conformidades", ClipboardCheck],
       ] : []),
+      ...(["abastecimiento", "tesoreria", "auditor"].includes(rol)
+        ? [["/prevencion", "Análisis de proveedores", ScanSearch], ["/documentos", "Revisión documental", FileSearch]] : []),
     ]],
     ["Seguimiento", [
-      ["/indicadores", "Indicadores", BarChart3],
       ["/alertas", "Alertas", Bell],
-      ...(actor?.rol === "auditor" ? [["/bitacora", "Bitácora", Database]] : []),
+      ["/indicadores", "Indicadores", BarChart3],
+      ...(rol === "auditor" ? [["/bitacora", "Bitácora", Database]] : []),
       ["/verificar", "Verificar sello", QrCode],
     ]],
   ];
@@ -73,6 +79,8 @@ export function Marco({ actor, cerrarSesion, children }) {
                       <Icono size={18} strokeWidth={1.75} aria-hidden="true" />{etiqueta}
                       {destino === "/alertas" && porAtender > 0 &&
                         <span className="insignia" aria-label={`${porAtender} por atender`}>{porAtender}</span>}
+                      {destino === "/prevencion" && porEvaluar > 0 &&
+                        <span className="insignia" aria-label={`${porEvaluar} por atender`}>{porEvaluar}</span>}
                     </Link>;
                   })}
                 </div>

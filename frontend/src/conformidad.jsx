@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useNavegar } from "./navegacion";
 import { useParams } from "next/navigation";
 import { api, useAccion, useDatos } from "./api";
-import { fecha, hoy, observacionesDeEntrega, rutaExpediente, soles } from "./dominio";
+import { fecha, hoy, observacionesDeEntrega, rutaExpediente, soles, tieneOrden } from "./dominio";
 import { Aviso, Campo, Carga, Encabezado, EstadoAccion, InsigniaIA, Volver } from "./ui";
 
 const diasEntre = (desde, hasta) => Math.round((Date.parse(hasta) - Date.parse(desde)) / 86_400_000);
@@ -181,7 +181,8 @@ export function Conformidad() {
       {expediente ? <>
         <p className="secundario">{expediente.proveedor} · {soles(expediente.monto)} · Plazo de {expediente.plazo_dias} días
           · Fecha límite {fecha(recurso.datos.fecha_limite)}</p>
-        {expediente.tiene_conformidad ? <Aviso>Este expediente ya tiene una conformidad registrada.</Aviso>
+        {!tieneOrden(expediente) ? <Aviso tipo="advertencia">Este expediente aún no tiene orden: la conformidad se registra cuando el proveedor ya ejecutó la prestación.</Aviso>
+          : expediente.tiene_conformidad ? <Aviso>Este expediente ya tiene una conformidad registrada.</Aviso>
           : !recurso.datos.entregables.length ? <Aviso tipo="advertencia">
             Faltan los entregables del expediente. <Link href={`${rutaExpediente(id)}/tdr`}>Revisar TDR <InsigniaIA /></Link>
           </Aviso>

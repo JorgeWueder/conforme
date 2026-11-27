@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import CHAR, BigInteger, Date, DateTime, ForeignKey, LargeBinary, Numeric, Text
+from sqlalchemy import CHAR, BigInteger, Boolean, Date, DateTime, ForeignKey, LargeBinary, Numeric, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -61,13 +61,14 @@ class Expediente(Base):
     tipo: Mapped[str] = mapped_column(Text)
     descripcion: Mapped[str] = mapped_column(Text)
     area_id: Mapped[int] = mapped_column(ForeignKey("area.id"))
-    proveedor_id: Mapped[int] = mapped_column(ForeignKey("proveedor.id"))
+    proveedor_id: Mapped[int | None] = mapped_column(ForeignKey("proveedor.id"))
     solicitante_id: Mapped[int] = mapped_column(ForeignKey("persona.id"))
-    numero_orden: Mapped[str] = mapped_column(Text)
+    numero_orden: Mapped[str | None] = mapped_column(Text)
+    estado_flujo: Mapped[str] = mapped_column(Text, server_default="en_ejecucion")
     proyecto_referencia: Mapped[str | None] = mapped_column(Text)
     conformidad_plazo_especial: Mapped[bool] = mapped_column(server_default="false")
     fecha_requerimiento: Mapped[date] = mapped_column(Date)
-    fecha_orden: Mapped[date] = mapped_column(Date)
+    fecha_orden: Mapped[date | None] = mapped_column(Date)
     fecha_inicio_prestacion: Mapped[date | None] = mapped_column(Date)
     plazo_dias: Mapped[int]
     fecha_entrega_real: Mapped[date | None] = mapped_column(Date)
@@ -97,6 +98,7 @@ class Entregable(Base):
     numero: Mapped[int]
     descripcion: Mapped[str] = mapped_column(Text)
     origen: Mapped[str] = mapped_column(Text)
+    criterio_evidencia: Mapped[str | None] = mapped_column(Text)
 
 
 class Conformidad(Base):
@@ -111,6 +113,15 @@ class Conformidad(Base):
     sello_bitacora_id: Mapped[int | None] = mapped_column(BigInteger)
     sello_hash: Mapped[str | None] = mapped_column(CHAR(64))
     registrada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(server_default="1")
+    vigente: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    sustento_penalidad: Mapped[str | None] = mapped_column(Text)
+    verificacion_evidencias: Mapped[dict | None] = mapped_column(JSONB)
+    estado_revision_dec: Mapped[str] = mapped_column(Text, server_default="pendiente")
+    referencia_derivacion: Mapped[str | None] = mapped_column(Text)
+    motivo_revision_dec: Mapped[str | None] = mapped_column(Text)
+    revisado_dec_por: Mapped[int | None] = mapped_column(ForeignKey("persona.id"))
+    revisado_dec_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ConformidadEntregable(Base):
@@ -145,6 +156,7 @@ class Pago(Base):
     referencia_siaf: Mapped[str | None] = mapped_column(Text)
     registrado_por: Mapped[int] = mapped_column(ForeignKey("persona.id"))
     registrado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    verificacion_pago_id: Mapped[int | None] = mapped_column(ForeignKey("verificacion_pago.id"))
 
 
 class Alerta(Base):
@@ -158,6 +170,8 @@ class Alerta(Base):
     datos: Mapped[dict] = mapped_column(JSONB)
     persona_implicada_id: Mapped[int | None] = mapped_column(ForeignKey("persona.id"))
     estado: Mapped[str] = mapped_column(Text)
+    ambito: Mapped[str] = mapped_column(Text, server_default="operativa_tesoreria")
+    bloqueante: Mapped[bool] = mapped_column(Boolean, server_default="false")
     creada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     actualizada_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
@@ -193,6 +207,15 @@ class RevisionPrevia(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     asignado_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"))
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expediente_id: Mapped[int | None] = mapped_column(ForeignKey("expediente.id"))
+    evaluador_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+    revisor_independiente_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+    estado_revision_independiente: Mapped[str | None] = mapped_column(Text)
+    comentario_revision_independiente: Mapped[str | None] = mapped_column(Text)
+    enviado_revision_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revisado_independiente_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    proveedor_seleccionado_ruc: Mapped[str | None] = mapped_column(CHAR(11))
+    sustento_seleccion: Mapped[str | None] = mapped_column(Text)
 
 
 class RevisionPreviaVersion(Base):
@@ -220,3 +243,109 @@ class PrevencionRegistro(Base):
     fila: Mapped[int] = mapped_column(primary_key=True)
     ruc: Mapped[str] = mapped_column(CHAR(11))
     datos: Mapped[dict] = mapped_column(JSONB)
+
+
+class ExpedientePostor(Base):
+    __tablename__ = "expediente_postor"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    expediente_id: Mapped[int] = mapped_column(ForeignKey("expediente.id"))
+    ruc: Mapped[str] = mapped_column(CHAR(11))
+    razon_social: Mapped[str] = mapped_column(Text)
+    monto_cotizado: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    plazo_dias: Mapped[int]
+    contacto_nombre: Mapped[str | None] = mapped_column(Text)
+    contacto_correo: Mapped[str | None] = mapped_column(Text)
+    contacto_telefono: Mapped[str | None] = mapped_column(Text)
+    direccion: Mapped[str | None] = mapped_column(Text)
+    proforma_ref: Mapped[str | None] = mapped_column(Text)
+    cumple_tdr: Mapped[bool | None] = mapped_column(Boolean)
+    estado: Mapped[str] = mapped_column(Text, server_default="pendiente")
+    motivo_descarte: Mapped[str | None] = mapped_column(Text)
+    analisis_dimensiones: Mapped[dict] = mapped_column(JSONB, server_default="{}")
+    informe_consolidado: Mapped[dict | None] = mapped_column(JSONB)
+    notas_encargado: Mapped[str] = mapped_column(Text, server_default="")
+    registrado_por: Mapped[int] = mapped_column(ForeignKey("persona.id"))
+    analizado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consolidado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RevisionDocumental(Base):
+    __tablename__ = "revision_documental"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    ambito: Mapped[str] = mapped_column(Text)
+    expediente_id: Mapped[int | None] = mapped_column(ForeignKey("expediente.id"))
+    postor_id: Mapped[int | None] = mapped_column(ForeignKey("expediente_postor.id"))
+    archivos: Mapped[list] = mapped_column(JSONB, server_default="[]")
+    resultados_bloques: Mapped[dict] = mapped_column(JSONB, server_default="{}")
+    benford: Mapped[dict | None] = mapped_column(JSONB)
+    veredicto: Mapped[str | None] = mapped_column(Text)
+    resumen_agente: Mapped[str | None] = mapped_column(Text)
+    creado_por: Mapped[int] = mapped_column(ForeignKey("persona.id"))
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class TdrObservacion(Base):
+    __tablename__ = "tdr_observacion"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    expediente_id: Mapped[int] = mapped_column(ForeignKey("expediente.id"))
+    origen: Mapped[str] = mapped_column(Text)
+    autor_id: Mapped[int | None] = mapped_column(ForeignKey("persona.id"))
+    detalle: Mapped[str] = mapped_column(Text)
+    severidad: Mapped[str] = mapped_column(Text)
+    estado: Mapped[str] = mapped_column(Text, server_default="pendiente")
+    respuesta_area: Mapped[str | None] = mapped_column(Text)
+    respondido_por: Mapped[int | None] = mapped_column(ForeignKey("persona.id"))
+    respondido_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ConflictoInteres(Base):
+    __tablename__ = "conflicto_interes"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    expediente_id: Mapped[int] = mapped_column(ForeignKey("expediente.id"))
+    revision_previa_id: Mapped[int | None] = mapped_column(ForeignKey("revision_previa.id"))
+    persona_id: Mapped[int] = mapped_column(ForeignKey("persona.id"))
+    proveedor_ruc: Mapped[str | None] = mapped_column(CHAR(11))
+    tipo: Mapped[str] = mapped_column(Text)
+    descripcion: Mapped[str] = mapped_column(Text)
+    bloqueante: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    estado: Mapped[str] = mapped_column(Text, server_default="declarado")
+    registrado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class VerificacionPago(Base):
+    __tablename__ = "verificacion_pago"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    expediente_id: Mapped[int] = mapped_column(ForeignKey("expediente.id"))
+    verificado_por: Mapped[int] = mapped_column(ForeignKey("persona.id"))
+    checklist: Mapped[dict] = mapped_column(JSONB)
+    bloqueos_activos: Mapped[list] = mapped_column(JSONB, server_default="[]")
+    apto_para_pago: Mapped[bool] = mapped_column(Boolean)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ActuacionOCI(Base):
+    __tablename__ = "actuacion_oci"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    entidad: Mapped[str] = mapped_column(Text)
+    entidad_id: Mapped[int] = mapped_column(BigInteger)
+    tipo: Mapped[str] = mapped_column(Text)
+    descripcion: Mapped[str] = mapped_column(Text)
+    autor_id: Mapped[int] = mapped_column(ForeignKey("persona.id"))
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DocumentoPostor(Base):
+    __tablename__ = "documento_postor"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    expediente_id: Mapped[int] = mapped_column(ForeignKey("expediente.id"))
+    postor_id: Mapped[int] = mapped_column(ForeignKey("expediente_postor.id"))
+    tipo: Mapped[str] = mapped_column(Text)
+    nombre_archivo: Mapped[str] = mapped_column(Text)
+    mime: Mapped[str] = mapped_column(Text)
+    tamano: Mapped[int]
+    sha256: Mapped[str] = mapped_column(CHAR(64))
+    contenido: Mapped[bytes] = mapped_column(LargeBinary)
+    subido_por: Mapped[int] = mapped_column(ForeignKey("persona.id"))
+    subido_en: Mapped[datetime] = mapped_column(DateTime(timezone=True))

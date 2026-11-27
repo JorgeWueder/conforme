@@ -112,8 +112,8 @@ def test_eventos_en_orden_cronologico():
 def test_siembra_en_base(sesion_sembrada):
     contar = lambda tabla: sesion_sembrada.execute(text(f"SELECT count(*) FROM {tabla}")).scalar_one()
     assert contar("area") == 12
-    assert contar("persona") == 61  # 60 generadas + dec1
-    assert contar("usuario") == 61
+    assert contar("persona") == 62  # 60 generadas + dec1 + dec2
+    assert contar("usuario") == 62
     assert contar("proveedor") == 120
     assert contar("expediente") == 300
     c = generador.generar()

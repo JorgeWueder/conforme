@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
-import { FichaPrevencion } from "../../../../src/prevencion/ficha";
+import { FichaEvaluacion } from "../../../../src/evaluacion/ficha";
 
-export default async function Revision({ params }) {
+export default async function Evaluacion({ params }) {
   const { id } = await params;
   if (!/^[1-9]\d{0,18}$/.test(id)) notFound();
-  return <FichaPrevencion id={id} />;
+  return <FichaEvaluacion id={id} />;
 }

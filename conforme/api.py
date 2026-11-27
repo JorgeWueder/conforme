@@ -19,6 +19,7 @@ from conforme.errores import ErrorValidacion
 from conforme.ia import extractor
 from conforme.modelos import ROL_AREA_USUARIA
 from conforme.permisos import Actor, exigir_rol
+from conforme.proveedores import repositorio as evaluacion_proveedores
 
 router = APIRouter()
 
@@ -99,25 +100,34 @@ class NuevoEntregable(BaseModel):
     descripcion: str
 
 
-class NuevoExpediente(BaseModel):
+class PostorReferencial(BaseModel):
+    ruc: str = Field(max_length=11)
+    razon_social: str = Field(max_length=200)
+    monto_cotizado: Decimal
+    plazo_dias: int
+    contacto_correo: str | None = Field(default=None, max_length=120)
+    contacto_telefono: str | None = Field(default=None, max_length=40)
+    proforma_ref: str | None = Field(default=None, max_length=120)
+
+
+class NuevoRequerimiento(BaseModel):
+    """El área usuaria registra lo que necesita. No elige al proveedor ni registra la orden:
+    Abastecimiento evalúa a los posibles proveedores y la orden se confirma después."""
     tipo: Literal["bien", "servicio"]
-    descripcion: str
-    proveedor_id: int
-    numero_orden: str
+    descripcion: str = Field(max_length=2000)
     proyecto_referencia: str | None = None
     conformidad_plazo_especial: bool = False
     fecha_requerimiento: date
-    fecha_orden: date
-    fecha_inicio_prestacion: date | None = None
     plazo_dias: int
     monto: Decimal
     entregables: list[NuevoEntregable]
     origen_entregables: Literal["manual", "csv", "tdr"] = "manual"
+    postores: list[PostorReferencial] = Field(default=[], max_length=8)
 
 
 @router.post("/expedientes", status_code=201)
-def crear_expediente(datos: NuevoExpediente, sesion: Sesion, actor: UsuarioActual):
-    return {"id": repositorio.crear_expediente(sesion, actor, **datos.model_dump())}
+def crear_requerimiento(datos: NuevoRequerimiento, sesion: Sesion, actor: UsuarioActual):
+    return {"id": repositorio.crear_requerimiento(sesion, actor, **datos.model_dump())}
 
 
 def _origen_publico(request: Request) -> str:
@@ -144,7 +154,9 @@ def detalle_expediente(expediente_id: int, request: Request, sesion: Sesion, act
     return {
         "expediente": expediente,
         "fecha_limite": normativa.fecha_limite(expediente["fecha_orden"], expediente["plazo_dias"],
-                                              expediente["fecha_inicio_prestacion"]),
+                                              expediente["fecha_inicio_prestacion"])
+        if expediente["fecha_orden"] else None,
+        "seleccion": evaluacion_proveedores.seleccion(sesion, actor, expediente_id),
         "plazo_maximo_conformidad": normativa.plazo_conformidad(expediente["conformidad_plazo_especial"]),
         "conformidad": conformidad,
         "entregables": repositorio.listar_entregables(sesion, actor, expediente_id),
@@ -174,6 +186,8 @@ def reporte_expediente(expediente_id: int, request: Request, sesion: Sesion, act
 def calcular_penalidad(expediente_id: int, entrega: date, sesion: Sesion, actor: UsuarioActual):
     """Orientación para el formulario: la misma cuenta que usa la regla R2."""
     expediente = expediente_visible(sesion, actor, expediente_id)
+    if expediente["fecha_orden"] is None:
+        raise ErrorValidacion("El expediente aún no tiene orden registrada.")
     monto, plazo = Decimal(expediente["monto"]), expediente["plazo_dias"]
     limite = normativa.fecha_limite(expediente["fecha_orden"], plazo, expediente["fecha_inicio_prestacion"])
     atraso = max(0, (entrega - limite).days)

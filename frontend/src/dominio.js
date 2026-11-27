@@ -15,6 +15,15 @@ export const SEVERIDADES = { alta: "Alta", media: "Media" };
 export const REVISIONES = { descargo: "Descargo", cierre: "Cierre", escalamiento: "Escalamiento" };
 export const ACCIONES = {
   "expediente.registrado": "Expediente registrado",
+  "requerimiento.registrado": "Requerimiento registrado",
+  "evaluacion.iniciada": "Evaluación de proveedores iniciada",
+  "postor.agregado": "Posible proveedor agregado",
+  "postor.retirado": "Posible proveedor retirado",
+  "evaluacion.analizada": "Proveedores analizados",
+  "evaluacion.consolidada": "Evaluación consolidada",
+  "evaluacion.enviada": "Selección enviada a revisión independiente",
+  "evaluacion.aprobada": "Revisión independiente aprobada",
+  "evaluacion.observada": "Revisión independiente observada",
   "orden.emitida": "Orden emitida",
   "entregable.observado": "Observación registrada",
   "entregable.subsanado": "Subsanación verificada",
@@ -34,6 +43,25 @@ export const ACCIONES = {
   "ia.aprobada": "Propuesta de entregables aprobada",
   "ia.rechazada": "Propuesta de entregables rechazada",
 };
+/** Estado del expediente en el flujo, con quién debe actuar ahora. */
+export const ESTADOS_FLUJO = {
+  requerimiento: ["Requerimiento", "Área usuaria", "neutro"],
+  tdr_observado: ["TDR observado", "Área usuaria", "ambar"],
+  en_evaluacion_proveedores: ["Evaluando proveedores", "Abastecimiento", "neutro"],
+  pendiente_revision_independiente: ["En revisión independiente", "Abastecimiento", "ambar"],
+  seleccion_aprobada: ["Selección aprobada", "Área usuaria", "verde"],
+  orden_registrada: ["Orden registrada", "Área usuaria", "neutro"],
+  en_ejecucion: ["En ejecución", "Área usuaria", "neutro"],
+  observado: ["Entregable observado", "Abastecimiento y área usuaria", "ambar"],
+  conformidad_emitida: ["Conformidad emitida", "Abastecimiento", "neutro"],
+  conformidad_devuelta: ["Conformidad devuelta", "Área usuaria", "rojo"],
+  derivado_tesoreria: ["Derivado a Tesorería", "Tesorería", "verde"],
+  pagado: ["Pagado", "—", "verde"],
+};
+export const ANTES_DE_LA_ORDEN = ["requerimiento", "tdr_observado", "en_evaluacion_proveedores",
+  "pendiente_revision_independiente", "seleccion_aprobada"];
+export const tieneOrden = (expediente) => !ANTES_DE_LA_ORDEN.includes(expediente.estado_flujo);
+
 export const AVISO_ALERTAS = "Señales para revisión antes del pago.";
 
 const REGLAMENTO = "https://cdn.www.gob.pe/uploads/document/file/9295551/6444155-ref-reglamento-de-la-ley-de-contrataciones-del-estado-con-modificaciones-posteriores-hasta-08-ene-2026-2-v2.pdf?v=1768513235";

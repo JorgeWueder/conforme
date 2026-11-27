@@ -3,7 +3,7 @@
 import { Alertas, Bitacora } from "./auditoria";
 import { Conformidad } from "./conformidad";
 import { Detalle } from "./detalle";
-import { Expedientes, NuevoExpediente } from "./expedientes";
+import { Expedientes, NuevoRequerimiento } from "./expedientes";
 import { Indicadores } from "./indicadores";
 import { LecturaIA, RevisarTdr } from "./lectura";
 import { useSesion } from "./sesion";
@@ -39,8 +39,8 @@ export function VistaConformidad() {
   return <Rol nombre="area_usuaria"><Conformidad /></Rol>;
 }
 
-export function VistaOrden() {
-  return <Rol nombre="area_usuaria"><NuevoExpediente /></Rol>;
+export function VistaRequerimiento() {
+  return <Rol nombre="area_usuaria"><NuevoRequerimiento /></Rol>;
 }
 
 export function VistaLectura() {

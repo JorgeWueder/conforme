@@ -1,13 +1,13 @@
 import { useState } from "react";
 import {
-  Bell, ClipboardCheck, Download, FileText, Image, QrCode, RefreshCw, Wallet,
+  Bell, ClipboardCheck, Download, FileText, Image, QrCode, RefreshCw, ScanSearch, Stamp, Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { api, useAccion, useDatos } from "./api";
 import {
-  ACCIONES, ESTADOS, SEVERIDADES, alertaPendiente, capitalizar, fecha, fechaHora, hoy, nombreAlerta,
-  observacionesDeEntrega, rutaAlerta, rutaExpediente, soles,
+  ACCIONES, ESTADOS, ESTADOS_FLUJO, SEVERIDADES, alertaPendiente, capitalizar, fecha, fechaHora, hoy, nombreAlerta,
+  observacionesDeEntrega, rutaAlerta, rutaExpediente, soles, tieneOrden,
 } from "./dominio";
 import {
   Aviso, AvisoNavegacion, Campo, Carga, DatosClave, Encabezado, EstadoAccion,
@@ -137,6 +137,66 @@ function RevisionDec({ expediente, recargar }) {
   );
 }
 
+function ConfirmarOrden({ expediente, seleccionado, recargar }) {
+  const accion = useAccion();
+  function enviar(evento) {
+    evento.preventDefault();
+    const datos = Object.fromEntries(new FormData(evento.currentTarget));
+    accion.ejecutar(async () => {
+      await api(`/expedientes/${expediente.id}/orden`, { method: "POST", data: {
+        ...datos, fecha_inicio_prestacion: datos.fecha_inicio_prestacion || null } });
+      recargar();
+      return "Orden registrada. Ya puedes hacer seguimiento a los entregables.";
+    });
+  }
+  return (
+    <form className="formulario orden-confirmar panel" onSubmit={enviar}>
+      <h3>Registrar la orden de servicio</h3>
+      <p className="secundario">La orden se emite a favor de <strong>{seleccionado.razon_social}</strong> por{" "}
+        {soles(seleccionado.monto_cotizado)} y {seleccionado.plazo_dias} días, como se aprobó. No puedes cambiar el proveedor.</p>
+      <div className="rejilla tres">
+        <Campo titulo="N.º de orden de servicio"><input name="numero_orden" placeholder="OS-2026-00301" maxLength={60} required /></Campo>
+        <Campo titulo="Fecha de la orden"><input name="fecha_orden" type="date" defaultValue={hoy()} max={hoy()}
+          min={expediente.fecha_requerimiento} required /></Campo>
+        <Campo titulo="Inicio pactado (opcional)"><input name="fecha_inicio_prestacion" type="date" min={expediente.fecha_requerimiento} /></Campo>
+      </div>
+      <EstadoAccion accion={accion} />
+      <div><button className="primario" disabled={accion.pendiente}><Stamp size={16} /> Registrar orden</button></div>
+    </form>
+  );
+}
+
+function SeleccionProveedor({ expediente, seleccion, actor, recargar }) {
+  if (!seleccion) return null;
+  const { seleccionado } = seleccion;
+  const puedeVerEvaluacion = ["abastecimiento", "tesoreria", "auditor"].includes(actor.rol);
+  const estado = expediente.estado_flujo;
+  let resumen;
+  if (estado === "en_evaluacion_proveedores") {
+    resumen = seleccion.estado_revision === "observada"
+      ? `La revisión independiente observó la selección: ${seleccion.comentario_revision}`
+      : `Abastecimiento evalúa a ${seleccion.postores} posible(s) proveedor(es).`;
+  } else if (estado === "pendiente_revision_independiente") {
+    resumen = `${seleccion.evaluador} propone a ${seleccionado?.razon_social}. Espera la revisión independiente de otro especialista.`;
+  } else if (seleccionado) {
+    resumen = `${seleccionado.razon_social} (RUC ${seleccionado.ruc}) · ${soles(seleccionado.monto_cotizado)} · `
+      + `${seleccionado.plazo_dias} días. Evaluó ${seleccion.evaluador}; revisión independiente de ${seleccion.revisor}.`;
+  }
+  return (
+    <section className="seccion" id="seleccion">
+      <div className="fila-titulo">
+        <h2>Selección del proveedor</h2>
+        {puedeVerEvaluacion && <Link className="volver" href={`/prevencion/${expediente.id}`}><ScanSearch size={16} /> Ver evaluación</Link>}
+      </div>
+      {resumen && <p>{resumen}</p>}
+      {estado === "seleccion_aprobada" && actor.rol === "area_usuaria" && seleccionado &&
+        <ConfirmarOrden expediente={expediente} seleccionado={seleccionado} recargar={recargar} />}
+      {estado === "seleccion_aprobada" && actor.rol !== "area_usuaria" &&
+        <Aviso>Selección aprobada. Falta que el área usuaria registre la orden.</Aviso>}
+    </section>
+  );
+}
+
 function Observacion({ registro }) {
   const { subsanacion } = registro;
   return (
@@ -165,7 +225,8 @@ function Entregables({ expediente, conformidad, entregables, observaciones, acto
   return (
     <section className="seccion" id="entregables">
       <h2>Entregables y conformidad</h2>
-      {conformidad ? <>
+      {!tieneOrden(expediente) ? <Aviso>Estos son los entregables del requerimiento. La conformidad se registra después de la orden.</Aviso>
+      : conformidad ? <>
         <p>Conformidad registrada por <strong>{conformidad.conformante}</strong> el {fecha(conformidad.fecha_conformidad)}
           {" · "}Penalidad aplicada de {soles(conformidad.penalidad_aplicada)}</p>
         {conformidad.observaciones && <p className="secundario">Observaciones: {conformidad.observaciones}</p>}
@@ -270,7 +331,7 @@ function Pagos({ expediente, conformidad, abiertas, pendientes, pagos, actor, re
           {p.referencia_siaf && <small className="dato-tabla">Referencia SIAF {p.referencia_siaf}</small>}
         </li>)}</ul>
       </> : <p className="vacio">Sin pagos registrados.</p>}
-      {actor.rol === "tesoreria" && (
+      {actor.rol === "tesoreria" && tieneOrden(expediente) && (
         <details className="panel desplegable" id="registrar-pago">
           <summary>Registrar pago efectuado</summary>
           <form className="formulario" onSubmit={registrar}>
@@ -333,6 +394,23 @@ function abrirRegistroPago() {
 function Siguiente({ actor, expediente, conformidad, entregables, pendientes, alertas, pagos }) {
   const ruta = rutaExpediente(expediente.id);
   const sinCerrar = alertas.filter(alertaPendiente);
+  const estado = expediente.estado_flujo;
+  if (!tieneOrden(expediente)) {
+    if (actor.rol === "area_usuaria") {
+      return estado === "seleccion_aprobada"
+        ? <ProximoPaso titulo="Registra la orden de servicio"
+          acciones={<a className="boton primario" href="#seleccion"><Stamp size={16} /> Registrar orden</a>}>
+          La selección del proveedor ya tiene revisión independiente aprobada.</ProximoPaso>
+        : <ProximoPaso titulo="Abastecimiento está evaluando a los posibles proveedores">
+          Te avisaremos aquí cuando la selección esté aprobada para que registres la orden.</ProximoPaso>;
+    }
+    if (actor.rol === "abastecimiento" && estado !== "seleccion_aprobada") {
+      return <ProximoPaso titulo={estado === "pendiente_revision_independiente" ? "Selección en revisión independiente" : "Evalúa a los posibles proveedores"}
+        acciones={<Link className="boton primario" href={`/prevencion/${expediente.id}`}><ScanSearch size={16} /> Ir a la evaluación</Link>}>
+        El análisis por 6 dimensiones, el consolidado y la selección se hacen en Análisis de proveedores.</ProximoPaso>;
+    }
+    return null;
+  }
   if (actor.rol === "area_usuaria") {
     if (!conformidad && !entregables.length) {
       return <ProximoPaso titulo="Faltan los entregables"
@@ -383,13 +461,19 @@ function Siguiente({ actor, expediente, conformidad, entregables, pendientes, al
 
 function EstadoTramite({ expediente, conformidad, pagos }) {
   const ultimoPago = pagos.at(-1);
+  const conOrden = tieneOrden(expediente);
+  const evaluacion = conOrden || expediente.estado_flujo === "seleccion_aprobada" ? ["Aprobada", "registrada"]
+    : expediente.estado_flujo === "pendiente_revision_independiente" ? ["En revisión independiente", "pendiente"]
+      : ["En curso", "pendiente"];
   const etapas = [
-    [expediente.tipo === "servicio" ? "Orden de servicio" : "Orden de compra", "Abastecimiento", fecha(expediente.fecha_orden), "registrada"],
+    ["Evaluación de proveedores", "Abastecimiento", evaluacion[0], evaluacion[1]],
+    [expediente.tipo === "servicio" ? "Orden de servicio" : "Orden de compra", "Área usuaria",
+      conOrden ? fecha(expediente.fecha_orden) : "Pendiente", conOrden ? "registrada" : "pendiente"],
     ["Conformidad", "Área usuaria", conformidad ? fecha(conformidad.fecha_conformidad) : "Pendiente", conformidad ? "registrada" : "pendiente"],
     ["Devengado", "Contabilidad", "Consultar en SIAF", "externa"],
     ["Pago", "Tesorería", ultimoPago ? fecha(ultimoPago.fecha_pago) : "Sin registro", ultimoPago ? "registrada" : "pendiente"],
   ];
-  return <ol className="etapas" aria-label="Estado del trámite">
+  return <ol className="etapas etapas-cinco" aria-label="Estado del trámite">
     {etapas.map(([titulo, dependencia, estado, clase]) => (
       <li key={titulo} data-estado={clase}>
         <span className="etapa-punto" aria-hidden="true" />
@@ -405,7 +489,10 @@ export function Detalle({ actor }) {
   const { id } = useParams();
   const recurso = useDatos(`/expedientes/${id}`);
   if (!recurso.datos) return <><Volver to="/expedientes">Expedientes</Volver><Carga recurso={recurso} /></>;
-  const { expediente, conformidad, fecha_limite, plazo_maximo_conformidad, entregables, alertas, reglas, pagos, eventos } = recurso.datos;
+  const { expediente, conformidad, fecha_limite, plazo_maximo_conformidad, entregables, alertas, reglas, pagos, eventos,
+    seleccion } = recurso.datos;
+  const conOrden = tieneOrden(expediente);
+  const [estadoTexto, estadoQuien, estadoTono] = ESTADOS_FLUJO[expediente.estado_flujo] ?? [expediente.estado_flujo, "", "neutro"];
   const cumplidos = entregables.filter((item) => item.cumplido);
   const sinEvidencia = cumplidos.filter((item) => !item.evidencias.length);
   const abiertas = alertas.filter(alertaPendiente).length;
@@ -416,8 +503,12 @@ export function Detalle({ actor }) {
       <Volver to={expediente.tipo === "bien" ? "/expedientes?tipo=bien" : "/expedientes"}>Expedientes</Volver>
       <div className="caratula">
         <Encabezado titulo={expediente.descripcion} descripcion={expediente.area}
-          acciones={<Semaforo color={expediente.semaforo} />}>
-          <div className="caratula-codigo">{expediente.codigo} <span>{expediente.numero_orden}</span></div>
+          acciones={<div className="acciones">
+            <Indicador tono={estadoTono}>{estadoTexto}</Indicador>
+            {conOrden && <Semaforo color={expediente.semaforo} />}
+          </div>}>
+          <div className="caratula-codigo">{expediente.codigo} <span>{expediente.numero_orden ?? "Sin orden todavía"}</span>
+            {estadoQuien && estadoQuien !== "—" && <span>Le toca: {estadoQuien}</span>}</div>
         </Encabezado>
         <EstadoTramite expediente={expediente} conformidad={conformidad} pagos={pagos} />
       </div>
@@ -426,26 +517,28 @@ export function Detalle({ actor }) {
         <Download size={16} /> Reporte de trazabilidad (PDF)</a></div>
       <Siguiente actor={actor} expediente={expediente} conformidad={conformidad} entregables={entregables} pendientes={pendientes}
         alertas={alertas} pagos={pagos} />
+      <SeleccionProveedor expediente={expediente} seleccion={seleccion} actor={actor} recargar={recurso.recargar} />
       <nav className="indice" aria-label="Secciones del expediente">
-        <a href="#datos">Datos de la orden</a>
+        <a href="#datos">{conOrden ? "Datos de la orden" : "Datos del requerimiento"}</a>
+        {seleccion && <a href="#seleccion">Selección del proveedor</a>}
         <a href="#entregables">Entregables ({entregables.length})</a>
         <a href="#alertas">Alertas ({abiertas})</a>
         <a href="#pagos">Pagos ({pagos.length})</a>
         <a href="#linea-de-tiempo">Línea de tiempo</a>
       </nav>
       <section id="datos" className="panel datos-orden">
-        <h2>Datos de la orden</h2>
+        <h2>{conOrden ? "Datos de la orden" : "Datos del requerimiento"}</h2>
         <div className="rejilla dos">
           <DatosClave valores={[
-            ["Monto", soles(expediente.monto)], ["Tipo", capitalizar(expediente.tipo)],
+            [conOrden ? "Monto" : "Valor estimado", soles(expediente.monto)], ["Tipo", capitalizar(expediente.tipo)],
             ["Área usuaria", expediente.area], ["Solicitante", expediente.solicitante],
-            ["Proveedor", `${expediente.proveedor} (RUC ${expediente.proveedor_ruc})`],
+            ["Proveedor", conOrden ? `${expediente.proveedor} (RUC ${expediente.proveedor_ruc})` : "Por definir: en evaluación"],
             ...(expediente.proyecto_referencia ? [["Proyecto", expediente.proyecto_referencia]] : []),
           ]} />
           <DatosClave valores={[
             ["Requerimiento", fecha(expediente.fecha_requerimiento)], ["Orden emitida", fecha(expediente.fecha_orden)],
             ["Inicio pactado", fecha(expediente.fecha_inicio_prestacion)], ["Plazo de ejecución", `${expediente.plazo_dias} días`],
-            [expediente.fecha_inicio_prestacion ? "Fecha límite" : "Fecha límite estimada", fecha(fecha_limite)],
+            [expediente.fecha_inicio_prestacion ? "Fecha límite" : "Fecha límite estimada", conOrden ? fecha(fecha_limite) : "Se calcula con la orden"],
             ["Recepción del entregable", fecha(expediente.fecha_entrega_real)],
             ["Plazo de conformidad", `${plazo_maximo_conformidad} días`],
           ]} />

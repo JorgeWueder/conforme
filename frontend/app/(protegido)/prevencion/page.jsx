@@ -1,3 +1,3 @@
-import { ListaPrevencion } from "../../../src/prevencion/lista";
+import { BandejaEvaluaciones } from "../../../src/evaluacion/bandeja";
 
-export default ListaPrevencion;
+export default BandejaEvaluaciones;

@@ -93,3 +93,35 @@ def penalidad_esperada(monto: Decimal, plazo_dias: int, dias_atraso: int) -> Dec
         return Decimal("0.00")
     calculada = _redondear(penalidad_diaria(monto, plazo_dias) * dias_atraso)
     return min(calculada, penalidad_tope(monto))
+
+# --- Evaluación de posibles proveedores (Fase 2). ------------------------------------
+# POR VERIFICAR: umbrales de trabajo del equipo, no fijados por la Ley 32069 ni su
+# Reglamento. Sirven para ordenar la revisión; ninguno descalifica por sí solo salvo
+# los impedimentos (inhabilitación vigente, contribuyente no habido o de baja).
+EMPRESA_ANTIGUEDAD_MINIMA_MESES = 12      # menos de esto: empresa reciente, se revisa
+PRECIO_SOBREPRECIO_REVISAR = Decimal("0.15")   # 15 % sobre el valor estimado
+PRECIO_SOBREPRECIO_ALERTA = Decimal("0.30")
+PRECIO_BAJO_REVISAR = Decimal("0.25")         # 25 % bajo el estimado: posible precio temerario
+PRECIO_BAJO_ALERTA = Decimal("0.45")
+PRECIO_COTIZACIONES_GEMELAS = Decimal("0.01")  # dos cotizaciones a menos de 1 % entre sí
+DESEMPENO_PENALIDADES_REVISAR = 1
+DESEMPENO_PENALIDADES_ALERTA = 3
+DESEMPENO_CONCENTRACION_ORDENES_12M = 4   # órdenes con la entidad en los últimos 12 meses
+
+# --- Revisión documental y forense (Fase 3). -----------------------------------------
+# IGV: 16 % más 2 % del Impuesto de Promoción Municipal (TUO de la Ley del IGV, D.S. 055-99-EF).
+IGV_TASA = Decimal("0.18")
+CUADRE_TOLERANCIA = Decimal("0.05")   # diferencias de redondeo que no se señalan
+# POR VERIFICAR: criterios de trabajo, no normativos. Umbrales de MAD para el primer
+# dígito según Nigrini (Benford's Law, 2012); muestra mínima y rango definidos por el equipo.
+BENFORD_MUESTRA_MINIMA = 30
+BENFORD_RANGO_MINIMO = 100            # el mayor monto debe ser al menos 100 veces el menor
+BENFORD_MAD_CONFORME = 0.006
+BENFORD_MAD_ACEPTABLE = 0.012
+BENFORD_MAD_MARGINAL = 0.015
+BENFORD_EXCESO_DIGITO = 0.04          # 4 puntos por encima de lo esperado
+DOCUMENTOS_GEMELOS_MINUTOS = 30       # archivos de postores distintos creados con poca diferencia
+SIMILITUD_REVISAR = Decimal("0.25")
+SIMILITUD_ALERTA = Decimal("0.45")
+TDR_ACREDITADO = Decimal("0.6")       # fracción de términos del entregable presentes en la propuesta
+TDR_INCOMPLETO = Decimal("0.4")

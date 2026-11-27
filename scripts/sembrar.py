@@ -16,10 +16,35 @@ from conforme.modelos import (
 )
 from conforme.reglas import motor
 from datos import generador
+from scripts import casos_evaluacion
 
-_TABLAS = ("anomalia_sembrada, extraccion_ia, alerta_revision, alerta, pago, evidencia, "
-           "conformidad_entregable, conformidad, entregable, bitacora, expediente, "
-           "usuario, persona, proveedor, area")
+_TABLAS = ("anomalia_sembrada, extraccion_ia, alerta_revision, alerta, pago, verificacion_pago, evidencia, "
+           "conformidad_entregable, conformidad, entregable, conflicto_interes, revision_documental, "
+           "tdr_observacion, documento_postor, expediente_postor, actuacion_oci, revision_previa_version, revision_previa, "
+           "bitacora, expediente, usuario, persona, proveedor, area")
+
+# Estado del flujo y revisión de Abastecimiento deducidos de lo sembrado (misma regla que
+# las migraciones 010 y 012 aplican a los datos que ya existían).
+_ESTADOS_DEDUCIDOS = """
+UPDATE expediente x SET estado_flujo = CASE
+    WHEN EXISTS (SELECT 1 FROM pago p WHERE p.expediente_id = x.id) THEN 'pagado'
+    WHEN (SELECT b.accion FROM bitacora b
+          WHERE b.expediente_id = x.id AND b.accion IN ('conformidad.revisada', 'conformidad.devuelta')
+          ORDER BY b.id DESC LIMIT 1) = 'conformidad.devuelta' THEN 'conformidad_devuelta'
+    WHEN EXISTS (SELECT 1 FROM bitacora b
+                 WHERE b.expediente_id = x.id AND b.accion = 'conformidad.revisada') THEN 'derivado_tesoreria'
+    WHEN EXISTS (SELECT 1 FROM conformidad c WHERE c.expediente_id = x.id) THEN 'conformidad_emitida'
+    ELSE 'en_ejecucion'
+END;
+UPDATE conformidad c SET
+    estado_revision_dec = CASE WHEN b.accion = 'conformidad.revisada' THEN 'favorable' ELSE 'devuelta' END,
+    referencia_derivacion = b.detalle ->> 'referencia_derivacion',
+    motivo_revision_dec = b.detalle ->> 'motivo', revisado_dec_por = b.actor_id, revisado_dec_en = b.ts
+FROM (SELECT DISTINCT ON (expediente_id) expediente_id, accion, detalle, actor_id, ts
+      FROM bitacora WHERE accion IN ('conformidad.revisada', 'conformidad.devuelta')
+      ORDER BY expediente_id, id DESC) b
+WHERE b.expediente_id = c.expediente_id;
+"""
 
 
 def vaciar(sesion: Session) -> None:
@@ -58,6 +83,12 @@ def sembrar(sesion: Session, conjunto: dict, password: str) -> dict:
     sesion.add(dec)
     sesion.flush()
     sesion.add(Usuario(persona_id=dec.id, username="dec1", password_hash=hash_demo, rol="abastecimiento"))
+    # Segundo especialista de Abastecimiento: hace la revisión independiente (cuatro ojos).
+    dec2 = Persona(dni=f"{generador.PREFIJO_DNI}900002", nombres="Renzo", apellidos="Castañeda Ibáñez",
+                   cargo="Especialista de Abastecimiento (revisión independiente)", area_id=areas["LOG"].id)
+    sesion.add(dec2)
+    sesion.flush()
+    sesion.add(Usuario(persona_id=dec2.id, username="dec2", password_hash=hash_demo, rol="abastecimiento"))
 
     proveedores = {p["ruc"]: Proveedor(**p) for p in conjunto["proveedores"]}
     sesion.add_all(proveedores.values())
@@ -192,6 +223,9 @@ def sembrar(sesion: Session, conjunto: dict, password: str) -> dict:
     eventos.sort(key=lambda e: e["ts"])  # orden estable: a igual momento, el de llegada
     bitacora.registrar_lote(sesion, eventos)
     sellados = repositorio.asignar_sellos(sesion, pendientes)
+    for sentencia in _ESTADOS_DEDUCIDOS.split(";"):
+        if sentencia.strip():
+            sesion.execute(text(sentencia))
 
     return {
         "areas": len(areas), "personas": len(personas), "proveedores": len(proveedores),
@@ -213,5 +247,8 @@ if __name__ == "__main__":
         elif s.execute(select(func.count()).select_from(Area)).scalar_one() > 0:
             sys.exit("La base ya tiene datos. Usa --reiniciar para borrarlos y recargar.")
         conteos = sembrar(s, generador.generar(), password)
+        casos = casos_evaluacion.sembrar_casos(s)
     print("Sembrado: " + ", ".join(f"{n} {nombre}" for nombre, n in conteos.items()) + ".")
-    print("Usuarios de demostración: inf1 (área usuaria), tes1 (tesorería), oci1 (auditor), dec1 (abastecimiento).")
+    print("Casos de evaluación de proveedores: " + ", ".join(f"{c} ({e})" for c, e in casos) + ".")
+    print("Usuarios de demostración: inf1 (área usuaria), dec1 y dec2 (abastecimiento), "
+          "tes1 (tesorería), oci1 (OCI).")

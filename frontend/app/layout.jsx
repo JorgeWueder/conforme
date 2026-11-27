@@ -2,11 +2,12 @@ import { Suspense } from "react";
 import { InicioCargando, SesionProvider } from "../src/sesion";
 import "../src/estilos.css";
 import "../src/marco.css";
-import "../src/prevencion/prevencion.css";
+import "../src/evaluacion/evaluacion.css";
+import "../src/documentos/documentos.css";
 
 export const metadata = {
   title: { default: "Conforme", template: "%s | Conforme" },
-  description: "Revisión previa y seguimiento de compras públicas en la Universidad Nacional de Trujillo.",
+  description: "Evaluación de proveedores y seguimiento de compras públicas en la Universidad Nacional de Trujillo.",
 };
 
 export default function Layout({ children }) {

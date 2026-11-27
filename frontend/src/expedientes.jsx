@@ -4,19 +4,18 @@ import Link from "next/link";
 import { useNavegar } from "./navegacion";
 import { useConsulta } from "./navegacion";
 import { api, useAccion, useDatos } from "./api";
-import { fecha, hoy, rutaExpediente, soles } from "./dominio";
+import { ESTADOS_FLUJO, fecha, hoy, rutaExpediente, soles, tieneOrden } from "./dominio";
 import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Indicador, Resumen, Semaforo, Tabla, Volver } from "./ui";
 
-const estadoConformidad = (fila) => fila.observaciones_pendientes ? "Con observaciones"
-  : fila.tiene_conformidad ? "Registrada" : "Pendiente";
+const estadoFlujo = (fila) => ESTADOS_FLUJO[fila.estado_flujo] ?? [fila.estado_flujo, "", "neutro"];
 
 const columnas = (actor, destinoFila) => [
   { titulo: "Expediente", valor: (f) => f.codigo, render: (f) => <>
     <Link className="codigo-expediente" href={destinoFila(f.id)}>{f.codigo}</Link>
-    <small className="dato-tabla">{f.numero_orden} · {fecha(f.fecha_orden)}</small>
+    <small className="dato-tabla">{f.numero_orden ? `${f.numero_orden} · ${fecha(f.fecha_orden)}`
+      : `Requerimiento del ${fecha(f.fecha_requerimiento)}`}</small>
     <div className="estado-fila-movil">
-      <small>{f.observaciones_pendientes ? estadoConformidad(f)
-        : f.tiene_conformidad ? "Con conformidad" : "Sin conformidad"}</small>
+      <small>{estadoFlujo(f)[0]}</small>
       {f.tiene_pago && actor.rol !== "area_usuaria" && <small>Pago registrado</small>}
       {f.alertas_altas + f.alertas_medias > 0 && <Semaforo color={f.semaforo} />}
     </div>
@@ -24,7 +23,7 @@ const columnas = (actor, destinoFila) => [
   { titulo: "Prestación", valor: (f) => f.descripcion, clase: "celda-texto prestacion",
     render: (f) => <>
       <span className="recorte" title={f.descripcion}>{f.descripcion}</span>
-      <small className="dato-tabla">{f.proveedor}</small>
+      <small className="dato-tabla">{f.proveedor ?? "Proveedor por definir"}</small>
       <div className="datos-fila-movil">
         {actor.rol !== "area_usuaria" && <small>{f.area}</small>}
         <small>{soles(f.monto)}</small>
@@ -35,11 +34,14 @@ const columnas = (actor, destinoFila) => [
     render: (f) => <span title={f.area}>{f.area}</span>,
   }]),
   { titulo: "Monto", valor: (f) => Number(f.monto), render: (f) => soles(f.monto), clase: "numero columna-amplia" },
-  { titulo: "Conformidad", valor: estadoConformidad, clase: "columna-amplia",
-    render: (f) => <Indicador tono={f.observaciones_pendientes ? "ambar" : f.tiene_conformidad ? "verde" : "neutro"}>
-      {estadoConformidad(f)}
-    </Indicador> },
-  ...(actor.rol === "area_usuaria" ? [] : [{ titulo: "Pago", valor: (f) => f.tiene_pago ? "Registrado" : "Pendiente", clase: "columna-amplia" }]),
+  { titulo: "Estado", valor: (f) => estadoFlujo(f)[0], clase: "columna-amplia",
+    render: (f) => {
+      const [texto, quien, tono] = estadoFlujo(f);
+      return <div className="celda-estado">
+        <Indicador tono={f.observaciones_pendientes ? "ambar" : tono}>{texto}</Indicador>
+        {quien && quien !== "—" && <small>Le toca: {quien}</small>}
+      </div>;
+    } },
   { titulo: "Alertas", valor: (f) => ({ rojo: 0, ambar: 1, verde: 2 }[f.semaforo]), clase: "columna-amplia",
     render: (f) => f.alertas_altas + f.alertas_medias ? <Semaforo color={f.semaforo} /> : "—" },
 ];
@@ -48,7 +50,8 @@ const VISTAS = {
   rojo: (f) => f.semaforo === "rojo",
   ambar: (f) => f.semaforo === "ambar",
   verde: (f) => f.semaforo === "verde",
-  pendiente: (f) => !f.tiene_conformidad,
+  antes_orden: (f) => !tieneOrden(f),
+  pendiente: (f) => tieneOrden(f) && !f.tiene_conformidad,
   observadas: (f) => f.observaciones_pendientes > 0,
   por_pagar: (f) => f.tiene_conformidad && !f.tiene_pago && !f.observaciones_pendientes,
 };
@@ -73,7 +76,8 @@ export function Expedientes({ actor, soloPendientes = false }) {
     return () => clearTimeout(id);
   }, [busqueda, texto, setParams]);
   const recurso = useDatos(`/expedientes?texto=${encodeURIComponent(texto)}`);
-  const todos = recurso.datos?.filter((fila) => fila.tipo === tipo && (!soloPendientes || !fila.tiene_conformidad));
+  const todos = recurso.datos?.filter((fila) => fila.tipo === tipo
+    && (!soloPendientes || (tieneOrden(fila) && !fila.tiene_conformidad)));
   const filas = todos?.filter((f) => !vista || VISTAS[vista](f));
   const contar = (clave) => todos?.filter(VISTAS[clave]).length ?? "…";
   const cambiarVista = (clave) => setParams((actuales) => {
@@ -95,7 +99,7 @@ export function Expedientes({ actor, soloPendientes = false }) {
   return (
     <>
       <Encabezado titulo={titulo} descripcion={area}
-        acciones={!soloPendientes && actor.rol === "area_usuaria" && <Link className="boton primario" href="/nuevo-expediente"><Plus size={17} />Registrar orden de servicio</Link>} />
+        acciones={!soloPendientes && actor.rol === "area_usuaria" && <Link className="boton primario" href="/nuevo-expediente"><Plus size={17} />Nuevo requerimiento</Link>} />
       <section className="registro-expedientes" aria-label={soloPendientes ? titulo : "Bandeja de expedientes"}>
         <div className="registro-controles">
           <div className="barra-filtros">
@@ -111,8 +115,10 @@ export function Expedientes({ actor, soloPendientes = false }) {
           </div>
           <Resumen activo={vista ?? "todos"} onChange={(clave) => cambiarVista(clave === "todos" ? null : clave)} opciones={[
             { clave: "todos", titulo: "Todos", valor: todos?.length ?? "…" },
+            ...(!soloPendientes ? [{ clave: "antes_orden", titulo: "Antes de la orden", valor: contar("antes_orden"),
+              ayuda: "Requerimientos con proveedores en evaluación o selección por confirmar" }] : []),
             ...(!soloPendientes ? [{
-              clave: "pendiente", titulo: actor.rol === "tesoreria" ? "Falta sustento" : "Sin conformidad", valor: contar("pendiente"),
+              clave: "pendiente", titulo: actor.rol === "tesoreria" ? "Falta conformidad" : "Sin conformidad", valor: contar("pendiente"),
             }] : []),
             { clave: "observadas", titulo: "Con observaciones", valor: contar("observadas"), tono: "ambar" },
             { clave: "rojo", titulo: "Alertas altas", valor: contar("rojo"), tono: "rojo" },
@@ -160,11 +166,35 @@ function EditorManual({ filas, setFilas }) {
 let siguienteId = 1;
 const columnasCSV = [{ titulo: "N.º", valor: (f) => f.numero }, { titulo: "Descripción", valor: (f) => f.descripcion }];
 
-export function NuevoExpediente() {
-  const proveedores = useDatos("/proveedores");
+function CotizacionesReferenciales({ filas, setFilas }) {
+  const cambiar = (id, cambio) => setFilas((actuales) => actuales.map((fila) => fila.id === id ? { ...fila, ...cambio } : fila));
+  return (
+    <>
+      {filas.map((fila, indice) => (
+        <div className="fila-editor fila-cotizacion" key={fila.id}>
+          <Campo titulo="RUC"><input aria-label={`RUC de la cotización ${indice + 1}`} inputMode="numeric" maxLength={11}
+            value={fila.ruc} onChange={(e) => cambiar(fila.id, { ruc: e.target.value.replace(/\D/g, "") })} /></Campo>
+          <Campo titulo="Razón social"><input aria-label={`Razón social de la cotización ${indice + 1}`} value={fila.razon_social}
+            onChange={(e) => cambiar(fila.id, { razon_social: e.target.value })} /></Campo>
+          <Campo titulo="Monto (S/)"><input aria-label={`Monto de la cotización ${indice + 1}`} type="number" min="0.01" step="0.01"
+            value={fila.monto_cotizado} onChange={(e) => cambiar(fila.id, { monto_cotizado: e.target.value })} /></Campo>
+          <Campo titulo="Plazo (días)"><input aria-label={`Plazo de la cotización ${indice + 1}`} type="number" min="1"
+            value={fila.plazo_dias} onChange={(e) => cambiar(fila.id, { plazo_dias: e.target.value })} /></Campo>
+          <button type="button" className="icono-boton" aria-label={`Quitar cotización ${indice + 1}`}
+            onClick={() => setFilas(filas.filter((f) => f.id !== fila.id))}><Trash2 size={17} /></button>
+        </div>
+      ))}
+      <button type="button" onClick={() => setFilas([...filas, { id: siguienteId++, ruc: "", razon_social: "", monto_cotizado: "", plazo_dias: "" }])}>
+        <Plus size={17} />Añadir cotización</button>
+    </>
+  );
+}
+
+export function NuevoRequerimiento() {
   const [modo, setModo] = useState("manual");
   const [manual, setManual] = useState([{ id: 0, numero: 1, descripcion: "" }]);
   const [csv, setCsv] = useState(null);
+  const [cotizaciones, setCotizaciones] = useState([]);
   const cargaCsv = useAccion();
   const registro = useAccion();
   const navegar = useNavegar();
@@ -186,51 +216,49 @@ export function NuevoExpediente() {
       const entregables = modo === "manual"
         ? manual.map(({ numero, descripcion }) => ({ numero, descripcion }))
         : modo === "csv" ? csv.entregables : [];
+      const postores = cotizaciones.filter((c) => c.ruc || c.razon_social || c.monto_cotizado)
+        .map(({ ruc, razon_social, monto_cotizado, plazo_dias }) => ({
+          ruc, razon_social, monto_cotizado, plazo_dias: Number(plazo_dias) || 0,
+        }));
       const { id } = await api("/expedientes", { method: "POST", data: {
-        ...datos, fecha_inicio_prestacion: datos.fecha_inicio_prestacion || null,
+        descripcion: datos.descripcion, proyecto_referencia: datos.proyecto_referencia || null,
+        fecha_requerimiento: datos.fecha_requerimiento, plazo_dias: Number(datos.plazo_dias), monto: datos.monto,
         tipo: "servicio", conformidad_plazo_especial: datos.conformidad_plazo_especial === "on",
-        entregables, origen_entregables: modo,
+        entregables, origen_entregables: modo, postores,
       } });
       const destino = rutaExpediente(id);
-      navegar(modo === "tdr" ? destino + "/tdr" : destino, { state: { aviso: "Expediente registrado." } });
+      navegar(modo === "tdr" ? destino + "/tdr" : destino,
+        { state: { aviso: "Requerimiento registrado. Abastecimiento evaluará a los posibles proveedores." } });
     });
   }
 
   return (
     <>
-      <Encabezado titulo="Registrar orden de servicio">
+      <Encabezado titulo="Nuevo requerimiento de servicio"
+        descripcion="Describe lo que necesitas. Abastecimiento evalúa a los posibles proveedores y, cuando la selección esté aprobada, registras la orden.">
         <Volver to="/expedientes">Expedientes</Volver>
       </Encabezado>
-      {proveedores.datos ? <form className="formulario" onSubmit={registrar}>
+      <form className="formulario" onSubmit={registrar}>
         <section className="panel formulario">
-          <h2>Orden de servicio</h2>
-          <div className="rejilla dos">
-            <Campo titulo="N.º de orden de servicio"><input name="numero_orden" placeholder="OS-2026-00301" required /></Campo>
-            <Campo titulo="Proveedor"><select name="proveedor_id" required defaultValue="">
-              <option value="" disabled>Elige un proveedor</option>
-              {proveedores.datos.map((p) => <option key={p.id} value={p.id}>{p.razon_social} (RUC {p.ruc})</option>)}
-            </select></Campo>
-          </div>
-          <Campo titulo="Objeto del servicio"><textarea name="descripcion" required /></Campo>
+          <h2>1. Qué necesitas</h2>
+          <Campo titulo="Objeto del servicio" ayuda="Escríbelo como figura en los TDR."><textarea name="descripcion" maxLength={2000} required /></Campo>
           <div className="rejilla tres">
+            <Campo titulo="Valor estimado (S/)" ayuda="Según tu indagación de mercado."><input name="monto" type="number" min="0.01" step="0.01" required /></Campo>
+            <Campo titulo="Plazo de ejecución (días calendario)"><input name="plazo_dias" type="number" min="1" defaultValue="30" required /></Campo>
+            <Campo titulo="Fecha del requerimiento"><input name="fecha_requerimiento" type="date" defaultValue={hoyPeru} max={hoyPeru} required /></Campo>
             <Campo titulo="Referencia del proyecto (opcional)"><input name="proyecto_referencia" placeholder="PIC-2026-018" maxLength={120} /></Campo>
-            <Campo titulo="Plazo (días calendario)"><input name="plazo_dias" type="number" min="1" defaultValue="30" required /></Campo>
-            <Campo titulo="Monto (S/)"><input name="monto" type="number" min="0.01" step="0.01" required /></Campo>
-            <Campo titulo="Fecha del requerimiento"><input name="fecha_requerimiento" type="date" defaultValue={hoyPeru} required /></Campo>
-            <Campo titulo="Fecha de la orden"><input name="fecha_orden" type="date" defaultValue={hoyPeru} required /></Campo>
-            <Campo titulo="Inicio pactado de la prestación"><input name="fecha_inicio_prestacion" type="date" /></Campo>
           </div>
           <label className="casilla"><input type="checkbox" name="conformidad_plazo_especial" />
             La conformidad requiere pruebas o corresponde a una consultoría (20 días)</label>
         </section>
         <section className="panel formulario">
-          <h2>Entregables de los TDR</h2>
+          <h2>2. Entregables de los TDR</h2>
           <Campo titulo="Forma de registro"><select value={modo} onChange={(e) => setModo(e.target.value)}>
             <option value="manual">Registro manual</option><option value="csv">Importar CSV</option>
             <option value="tdr">Extraer de los TDR con IA</option>
           </select></Campo>
           {modo === "manual" && <EditorManual filas={manual} setFilas={setManual} />}
-          {modo === "tdr" && <p className="secundario">Después de registrar la orden, carga el PDF y revisa los entregables extraídos.</p>}
+          {modo === "tdr" && <p className="secundario">Después de registrar el requerimiento, carga el PDF y revisa los entregables extraídos.</p>}
           {modo === "csv" && <>
             <Campo titulo="Archivo CSV" ayuda="Usa el encabezado numero,descripcion y una fila por entregable.">
               <input type="file" accept=".csv,text/csv" onChange={importar} disabled={cargaCsv.pendiente} />
@@ -242,10 +270,16 @@ export function NuevoExpediente() {
                 <Tabla columnas={columnasCSV} filas={csv.entregables} etiqueta="Entregables del CSV" /></>)}
           </>}
         </section>
+        <section className="panel formulario">
+          <h2>3. Cotizaciones referenciales (opcional)</h2>
+          <p className="secundario">Si ya pediste cotizaciones, regístralas para que Abastecimiento las evalúe.
+            No eliges al proveedor: la selección la sustenta Abastecimiento y la aprueba otro especialista.</p>
+          <CotizacionesReferenciales filas={cotizaciones} setFilas={setCotizaciones} />
+        </section>
         <EstadoAccion accion={registro} />
         <div className="acciones"><button className="primario"
-          disabled={registro.pendiente || (modo === "csv" && (!csv || csv.errores.length))}>Registrar expediente</button></div>
-      </form> : <Carga recurso={proveedores} />}
+          disabled={registro.pendiente || (modo === "csv" && (!csv || csv.errores.length))}>Registrar requerimiento</button></div>
+      </form>
     </>
   );
 }

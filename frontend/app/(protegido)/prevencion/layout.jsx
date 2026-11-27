@@ -1,7 +1,7 @@
-import { SoloAbastecimiento } from "../../../src/prevencion/permiso";
+import { SoloEvaluacion } from "../../../src/evaluacion/permiso";
 
-export const metadata = { title: "Revisión previa" };
+export const metadata = { title: "Análisis de proveedores" };
 
-export default function LayoutPrevencion({ children }) {
-  return <SoloAbastecimiento>{children}</SoloAbastecimiento>;
+export default function LayoutEvaluacion({ children }) {
+  return <SoloEvaluacion>{children}</SoloEvaluacion>;
 }

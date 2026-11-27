@@ -72,7 +72,7 @@ def generar_pdf(datos: dict, *, actor: str, cadena_integra: bool, registros: int
     ancho = A4[0] - 3.6 * cm
     historia = [
         _p("Conforme · Reporte de trazabilidad", _H1),
-        _p(f"{e['codigo']} · {e['numero_orden']} · {e['descripcion']}"),
+        _p(f"{e['codigo']} · {e['numero_orden'] or 'sin orden'} · {e['descripcion']}"),
         _p("Datos sintéticos. Este reporte alerta y deja rastro; no determina responsabilidades "
            "ni autoriza pagos.", _PEQUENO),
         _p(f"Generado el {_fecha_hora(datetime.now(_LIMA))} para {actor}. El contenido está limitado "
@@ -81,7 +81,7 @@ def generar_pdf(datos: dict, *, actor: str, cadena_integra: bool, registros: int
 
     historia.append(_p("1. Datos de la orden", _H2))
     historia.append(_tabla([
-        [_p("Área usuaria"), _p(e["area"]), _p("Proveedor"), _p(f"{e['proveedor']} (RUC {e['proveedor_ruc']})")],
+        [_p("Área usuaria"), _p(e["area"]), _p("Proveedor"), _p(f"{e['proveedor']} (RUC {e['proveedor_ruc']})" if e["proveedor"] else "Por definir (en evaluación)")],
         [_p("Solicitante"), _p(e["solicitante"]), _p("Monto"), _p(_soles(e["monto"]))],
         [_p("Requerimiento"), _p(_fecha(e["fecha_requerimiento"])), _p("Orden emitida"), _p(_fecha(e["fecha_orden"]))],
         [_p("Inicio pactado"), _p(_fecha(e["fecha_inicio_prestacion"])), _p("Plazo"), _p(f"{e['plazo_dias']} días")],

@@ -6,9 +6,13 @@ from conforme.api import router
 from conforme.errores import ErrorValidacion
 from conforme.permisos import PermisoDenegado
 from conforme.prevencion import api as prevencion
+from conforme.documentos import api as documentos
+from conforme.proveedores import api as proveedores
 
 app = FastAPI(title="Conforme")
 app.include_router(router, prefix="/api")
+app.include_router(documentos.router, prefix="/api")
+app.include_router(proveedores.router, prefix="/api")
 app.include_router(prevencion.router, prefix="/api")
 prevencion.errores(app)
 

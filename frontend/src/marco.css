@@ -59,8 +59,8 @@ h1 {
 .marco-publico .barra-publica nav a[aria-current="page"] { text-decoration: underline; }
 
 @media (max-width: 52rem) {
-  .marco-privado { grid-template-columns: minmax(0, 1fr); }
-  .lateral { gap: .7rem; }
+  .marco-privado { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  .lateral { position: static; height: auto; gap: .7rem; }
   .menu-movil {
     display: inline-flex;
     padding: .42rem .65rem;
