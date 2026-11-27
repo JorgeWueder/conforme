@@ -2,7 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 
 const REGISTRO_SIMULADO: Record<string, object> = {
-  "20601122337": {
+  "20601122333": {
     razon_social: "TECNOLAB SERVICIOS INTEGRALES S.A.C.",
     estado: "ACTIVO",
     condicion: "HABIDO",
@@ -17,7 +17,7 @@ const REGISTRO_SIMULADO: Record<string, object> = {
       { nombre: "Lucía Fernanda Ríos Benites", rol: "socio" },
     ],
   },
-  "20614988777": {
+  "20614988771": {
     razon_social: "INVERSIONES KALLPA ANDINA E.I.R.L.",
     estado: "ACTIVO",
     condicion: "HABIDO",
@@ -32,7 +32,7 @@ const REGISTRO_SIMULADO: Record<string, object> = {
       { nombre: "Jorge Luis Paredes Vela", rol: "representante_legal" },
     ],
   },
-  "20605544112": {
+  "20605544119": {
     razon_social: "GRUPO SERVIMAX DEL NORTE S.A.C.",
     estado: "ACTIVO",
     condicion: "HABIDO",

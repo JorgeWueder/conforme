@@ -191,7 +191,7 @@ function CotizacionesReferenciales({ filas, setFilas }) {
 }
 
 export function NuevoRequerimiento() {
-  const [modo, setModo] = useState("manual");
+  const [modo, setModo] = useState("tdr");
   const [manual, setManual] = useState([{ id: 0, numero: 1, descripcion: "" }]);
   const [csv, setCsv] = useState(null);
   const [cotizaciones, setCotizaciones] = useState([]);
@@ -253,7 +253,10 @@ export function NuevoRequerimiento() {
         </section>
         <section className="panel formulario">
           <h2>2. Entregables de los TDR</h2>
-          <Campo titulo="Forma de registro"><select value={modo} onChange={(e) => setModo(e.target.value)}>
+          <Campo titulo="Forma de registro"><select value={modo} onChange={(e) => {
+            setModo(e.target.value);
+            registro.limpiar();
+          }}>
             <option value="manual">Registro manual</option><option value="csv">Importar CSV</option>
             <option value="tdr">Extraer de los TDR con IA</option>
           </select></Campo>

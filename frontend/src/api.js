@@ -107,5 +107,5 @@ export function useAccion() {
       enCurso.current = false;
     }
   }
-  return { ...estado, ejecutar };
+  return { ...estado, ejecutar, limpiar: () => setEstado({}) };
 }
