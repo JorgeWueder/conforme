@@ -221,6 +221,23 @@ def analizar(sesion: Session, actor: Actor, expediente_id: int) -> dict:
         resumen_agente=resultado["resumen"], creado_por=actor.persona_id, creado_en=datetime.now(timezone.utc))
     sesion.add(revision)
     sesion.flush()
+    from conforme.proveedores import alertas as alertas_prev
+    mapa_doc = {"metadatos": "D1", "similitud": "D1", "montos": "D2", "coherencia": "D3"}
+    propuestas_doc = []
+    for clave_b, regla in mapa_doc.items():
+        bloque = resultado["bloques"].get(clave_b)
+        if bloque and bloque["estado"] in ("alerta", "revisar"):
+            alta = bloque["estado"] == "alerta"
+            propuestas_doc.append({
+                "regla": regla,
+                "clave": f"doc-{clave_b}",
+                "severidad": "alta" if alta else "media",
+                "bloqueante": False,
+                "ambito": "seguimiento_oci",
+                "explicacion": f"Revisión documental ({bloque['titulo']}): {bloque['resumen']}",
+                "datos": {"bloque": clave_b, "revision_id": revision.id},
+            })
+    alertas_prev.sincronizar_alertas(sesion, expediente_id, propuestas_doc)
     conteo = resultado["conteo"]
     bitacora.registrar(sesion, actor_id=actor.persona_id, accion="documentos.analizados",
                        entidad="revision_documental", entidad_id=revision.id, expediente_id=expediente.id,

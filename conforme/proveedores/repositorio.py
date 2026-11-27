@@ -28,7 +28,7 @@ from conforme.permisos import (
 )
 from conforme.adaptadores import obtener_fuentes
 from conforme.prevencion.esquemas import ruc_valido
-from conforme.proveedores import consolidado, dimensiones
+from conforme.proveedores import alertas as alertas_prev, consolidado, dimensiones
 from conforme.proveedores.dimensiones import DIMENSIONES, Contexto, Funcionario, Historial, Postor
 from conforme.reglas import motor
 
@@ -298,11 +298,32 @@ def quitar_postor(sesion: Session, actor: Actor, expediente_id: int, postor_id: 
     expediente = _expediente(sesion, actor, expediente_id, bloquear=True)
     _editable(sesion, actor, expediente)
     postor = _postor(sesion, expediente_id, postor_id)
+    ruc, razon_social = postor.ruc, postor.razon_social
+    dims = postor.analisis_dimensiones or {}
+    veredicto = (postor.informe_consolidado or {}).get("veredicto")
+    era_limpio = bool(postor.analizado_en) and (
+        veredicto == "apto"
+        or (bool(dims) and all(r.get("estado") != "alerta" for r in dims.values()))
+    )
     sesion.delete(postor)
     sesion.flush()
     _invalidar_consolidado(sesion, expediente_id)
     _registrar(sesion, actor, expediente_id, "postor.retirado",
-               f"Posible proveedor retirado: {postor.razon_social} (RUC {postor.ruc}).")
+               f"Posible proveedor retirado: {razon_social} (RUC {ruc}).")
+    if era_limpio:
+        alertas_prev.sincronizar_alertas(sesion, expediente_id, [{
+            "regla": "I1",
+            "clave": f"retiro-limpio-{ruc}",
+            "severidad": "alta",
+            "bloqueante": False,
+            "ambito": "seguimiento_oci",
+            "persona_implicada_id": actor.persona_id,
+            "explicacion": (
+                f"{actor.nombre} retiró al postor {razon_social} (RUC {ruc}) después de haberlo analizado "
+                "sin alertas críticas. Posible exclusión indebida para favorecer a otro postor."
+            ),
+            "datos": {"ruc": ruc, "razon_social": razon_social, "evento": "retiro_postor_limpio"},
+        }])
 
 
 def guardar_notas(sesion: Session, actor: Actor, expediente_id: int, postor_id: int, notas: str) -> None:
@@ -417,16 +438,36 @@ def analizar(sesion: Session, actor: Actor, expediente_id: int, *, postor_id: in
     contexto_de = _contexto(sesion, expediente, evaluacion.evaluador_id, postores, fichas)
     ahora = _ahora()
     conteo = {"limpio": 0, "revisar": 0, "alerta": 0}
+    propuestas_alerta: list[dict] = []
     for p in objetivos:
         resultados = dimensiones.evaluar(_postor_puro(p), fichas[p.id], contexto_de(p),
                                          [dimension] if dimension else None)
-        for r in resultados.values():
+        for clave_dim, r in resultados.items():
             r["calculado_en"] = ahora.isoformat()
             conteo[r["estado"]] += 1
+            if r["estado"] == "alerta":
+                regla = {"antecedentes": "P2", "personas": "P1", "colusion": "P3",
+                         "empresa": "P4", "precio": "P4", "desempeno": "P4"}[clave_dim]
+                es_conflicto = clave_dim == "personas" and any(
+                    "coincide" in h["que"].lower() or "solicitante" in h["que"].lower() or "funcionario" in h["que"].lower()
+                    for h in r["hallazgos"]
+                )
+                if clave_dim == "personas" and not es_conflicto:
+                    regla = "P2"
+                propuestas_alerta.append({
+                    "regla": regla,
+                    "clave": f"postor-{p.ruc}-{clave_dim}",
+                    "severidad": "alta" if regla in ("P1", "P2", "P3") else "media",
+                    "bloqueante": False,
+                    "ambito": "seguimiento_oci",
+                    "explicacion": f"{p.razon_social} (RUC {p.ruc}): {r['resumen']}",
+                    "datos": {"ruc": p.ruc, "razon_social": p.razon_social, "dimension": clave_dim},
+                })
         p.analisis_dimensiones = {**(p.analisis_dimensiones or {}), **resultados}
         p.analizado_en = ahora
         if p.estado in ("pendiente", "consolidado"):
             p.estado = "analizado"
+    alertas_prev.sincronizar_alertas(sesion, expediente_id, propuestas_alerta)
     _invalidar_consolidado(sesion, expediente_id)
     sesion.flush()
     alcance = (f"{DIMENSIONES[dimension]} de " if dimension else "6 dimensiones de ") + (
@@ -546,10 +587,33 @@ def revisar_independiente(sesion: Session, actor: Actor, expediente_id: int, *, 
     evaluacion.revisor_independiente_id = actor.usuario_id
     evaluacion.revisado_independiente_en = ahora
     evaluacion.comentario_revision_independiente = comentario or None
+    detalle_bitacora: dict = {}
     if aprobar:
         evaluacion.estado_revision_independiente = "aprobada"
         expediente.estado_flujo = APROBADA
-        resumen = "Revisión independiente aprobada: la selección queda lista para que el área usuaria confirme la orden."
+        elegido = next((p for p in _postores(sesion, expediente_id)
+                        if p.ruc == evaluacion.proveedor_seleccionado_ruc), None)
+        if elegido is not None:
+            proveedor = sesion.scalar(select(Proveedor).where(Proveedor.ruc == elegido.ruc))
+            if proveedor is None:
+                proveedor = Proveedor(ruc=elegido.ruc, razon_social=elegido.razon_social)
+                sesion.add(proveedor)
+                sesion.flush()
+            expediente.proveedor_id = proveedor.id
+            expediente.monto = elegido.monto_cotizado
+            expediente.plazo_dias = elegido.plazo_dias
+            detalle_bitacora = {
+                "proveedor_id": proveedor.id,
+                "proveedor_ruc": elegido.ruc,
+                "proveedor_razon_social": elegido.razon_social,
+                "monto": elegido.monto_cotizado,
+            }
+            resumen = (
+                f"Revisión independiente aprobada: proveedor elegido {elegido.razon_social} "
+                f"(RUC {elegido.ruc}, S/ {elegido.monto_cotizado:,.2f}) guardado en el expediente."
+            )
+        else:
+            resumen = "Revisión independiente aprobada: selección registrada en el expediente."
     else:
         evaluacion.estado_revision_independiente = "observada"
         expediente.estado_flujo = EN_EVALUACION
@@ -557,9 +621,23 @@ def revisar_independiente(sesion: Session, actor: Actor, expediente_id: int, *, 
             p.estado = "consolidado" if p.informe_consolidado else "analizado"
             p.motivo_descarte = None
         resumen = f"Revisión independiente observada: {comentario}"
+        evaluador = _persona_por_usuario(sesion, evaluacion.evaluador_id) if evaluacion.evaluador_id else None
+        alertas_prev.sincronizar_alertas(sesion, expediente_id, [{
+            "regla": "I1",
+            "clave": f"devolucion-rev-{evaluacion.id}",
+            "severidad": "media",
+            "bloqueante": False,
+            "ambito": "seguimiento_oci",
+            "persona_implicada_id": evaluador.id if evaluador else None,
+            "explicacion": (
+                f"Revisión independiente observada por {actor.nombre}: se devolvió la propuesta "
+                f"de selección para revisión. Motivo: {comentario}"
+            ),
+            "datos": {"evento": "devolucion_revision_independiente", "revisor": actor.nombre},
+        }])
     sesion.flush()
     _registrar(sesion, actor, expediente_id,
-               "evaluacion.aprobada" if aprobar else "evaluacion.observada", resumen)
+               "evaluacion.aprobada" if aprobar else "evaluacion.observada", resumen, **detalle_bitacora)
 
 
 # --- Orden sobre la selección aprobada --------------------------------------------------

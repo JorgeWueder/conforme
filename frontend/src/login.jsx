@@ -10,11 +10,9 @@ import fotoCampus from "./assets/unt-ciudad-universitaria.webp";
 import fotoPatio from "./assets/unt-patio-historico.webp";
 
 const ROLES_DEMO = [
-  { usuario: "dec1", rol: "Abastecimiento" },
+  { usuario: "dec1", rol: "Abastecimiento (Evaluación)" },
   { usuario: "dec2", rol: "Revisión independiente" },
-  { usuario: "inf1", rol: "Área usuaria" },
-  { usuario: "tes1", rol: "Tesorería" },
-  { usuario: "oci1", rol: "OCI" },
+  { usuario: "aud1", rol: "Auditoría e Integridad" },
 ];
 
 export function Login({ ingresar, vencida }) {
@@ -110,8 +108,8 @@ export function Login({ ingresar, vencida }) {
               <figcaption>Sede histórica, 2006</figcaption>
             </figure>
             <div className="login-contexto-texto">
-              <h2>Compras públicas con evidencia</h2>
-              <p>Revisión previa de proveedores y seguimiento de las contrataciones de la UNT.</p>
+              <h2>Filtro preventivo antes de contratar</h2>
+              <p>Análisis de proveedores en 6 dimensiones, auditoría documental (Benford y metadatos) y revisión independiente para la Unidad de Abastecimiento de la UNT.</p>
             </div>
           </div>
         </aside>

@@ -4,6 +4,7 @@ import "../src/estilos.css";
 import "../src/marco.css";
 import "../src/evaluacion/evaluacion.css";
 import "../src/documentos/documentos.css";
+import "../src/dashboard.css";
 
 export const metadata = {
   title: { default: "Conforme", template: "%s | Conforme" },

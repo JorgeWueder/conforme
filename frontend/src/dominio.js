@@ -1,7 +1,7 @@
 export const ROLES = {
   area_usuaria: "Área usuaria",
   tesoreria: "Tesorería",
-  auditor: "Órgano de Control Institucional",
+  auditor: "Auditoría e Integridad",
   abastecimiento: "Abastecimiento (DEC)",
 };
 export const ESTADOS = {
@@ -38,8 +38,8 @@ export const ACCIONES = {
   "alerta.descargo": "Descargo presentado",
   "alerta.cerrada": "Alerta cerrada",
   "alerta.escalada": "Alerta escalada",
-  "oci.actuacion": "Actuación OCI registrada",
-  "oci.seguimiento_abierto": "Seguimiento OCI abierto",
+  "oci.actuacion": "Decisión de Auditoría e Integridad",
+  "oci.seguimiento_abierto": "Alerta de seguimiento abierta",
   "notificacion.simulada": "Aviso interno registrado",
   "conformidad.sellada": "Conformidad sellada",
   "ia.propuesta": "TDR leído",

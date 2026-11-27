@@ -174,6 +174,12 @@ def indicadores(sesion: Sesion, actor: UsuarioActual):
     return repositorio.indicadores(sesion, actor)
 
 
+@router.get("/dashboard")
+def panel_dashboard(sesion: Sesion, actor: UsuarioActual):
+    from conforme import dashboard
+    return dashboard.resumen(sesion, actor)
+
+
 @router.get("/expedientes/{expediente_id}/reporte")
 def reporte_expediente(expediente_id: int, request: Request, sesion: Sesion, actor: UsuarioActual):
     datos = detalle_expediente(expediente_id, request, sesion, actor)
@@ -382,7 +388,7 @@ def reevaluar(expediente_id: int, sesion: Sesion, actor: UsuarioActual):
 @router.get("/alertas")
 def listar_alertas(sesion: Sesion, actor: UsuarioActual):
     return {"alertas": repositorio.listar_alertas(sesion, actor),
-            "reglas": {**normativa.NOMBRE_REGLA, "OCI": "Seguimiento del OCI"}}
+            "reglas": {**normativa.NOMBRE_REGLA, "OCI": "Seguimiento de Auditoría"}}
 
 
 @router.get("/integridad")
@@ -393,7 +399,10 @@ def panel_integridad(sesion: Sesion, actor: UsuarioActual):
 class ActuacionOCI(BaseModel):
     entidad: Literal["expediente", "revision_previa", "conflicto_interes"]
     entidad_id: int = Field(gt=0)
-    tipo: Literal["observacion_seguimiento", "requerimiento_info", "recomendacion", "alerta_seguimiento"]
+    tipo: Literal[
+        "recomendar_abstencion", "derivar_sancion", "solicitar_descargos", "archivar_sustento",
+        "observacion_seguimiento", "requerimiento_info", "recomendacion", "alerta_seguimiento",
+    ]
     descripcion: str = Field(min_length=15, max_length=2000)
 
 

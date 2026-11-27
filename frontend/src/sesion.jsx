@@ -14,7 +14,7 @@ const enServidor = () => false;
 function useHidratado() {
   return useSyncExternalStore(suscribirHidratacion, enNavegador, enServidor);
 }
-const inicioDe = (actor) => actor?.rol === "abastecimiento" ? "/prevencion" : "/expedientes";
+const inicioDe = () => "/dashboard";
 
 function rutaInterna(valor) {
   if (!valor?.startsWith("/")) return null;

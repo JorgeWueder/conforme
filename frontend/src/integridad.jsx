@@ -5,6 +5,10 @@ import { ESTADOS, fechaHora, rutaAlerta, rutaExpediente } from "./dominio";
 import { Campo, Carga, Encabezado, EstadoAccion, Indicador, Tabla } from "./ui";
 
 const TIPOS = {
+  recomendar_abstencion: "Recomendar abstención o rotación",
+  derivar_sancion: "Derivar a PAD / Tribunal de Contrataciones / DGA",
+  solicitar_descargos: "Solicitar descargos o ampliar indagación",
+  archivar_sustento: "Archivar con sustento",
   observacion_seguimiento: "Observación de seguimiento",
   requerimiento_info: "Requerimiento de información",
   recomendacion: "Recomendación",
@@ -38,15 +42,15 @@ export function Integridad() {
       return "Actuación registrada en la bitácora.";
     });
   }
-  if (!datos) return <><Encabezado titulo="Integridad y conflictos" /><Carga recurso={recurso} /></>;
+  if (!datos) return <><Encabezado titulo="Auditoría e Integridad" /><Carga recurso={recurso} /></>;
   return <>
-    <Encabezado titulo="Integridad y conflictos"
-      descripcion="Monitoreo del OCI sobre expedientes, evaluaciones y conflictos. Las actuaciones de seguimiento no levantan bloqueos operativos." />
+    <Encabezado titulo="Auditoría e Integridad"
+      descripcion="Monitoreo independiente de alertas escaladas, conflictos de interés y decisiones formales. No modifica adjudicaciones ni levanta bloqueos operativos." />
     <div className="tarjetas">
       <div className="panel cifra"><strong>{datos.expedientes}</strong><span>Expedientes monitoreados</span></div>
       <div className="panel cifra"><strong>{datos.conflictos_bloqueantes}</strong><span>Conflictos bloqueantes activos</span></div>
       <div className="panel cifra"><strong>{datos.revisiones_pendientes}</strong><span>Revisiones independientes pendientes</span></div>
-      <Link className="panel cifra" href="/alertas?ambito=seguimiento_oci"><strong>{datos.seguimiento_abierto}</strong><span>Seguimientos abiertos</span></Link>
+      <Link className="panel cifra" href="/alertas?ambito=seguimiento_oci"><strong>{datos.seguimiento_abierto}</strong><span>Alertas escaladas abiertas</span></Link>
     </div>
     <section className="seccion">
       <div className="fila-titulo"><h2>Conflictos de interés</h2></div>
@@ -76,17 +80,18 @@ export function Integridad() {
         ]} />
     </section>
     <section className="seccion">
-      <div className="fila-titulo"><h2>Seguimiento OCI</h2><Link className="boton" href="/documentos">Auditar documentos y Benford</Link></div>
-      <Tabla etiqueta="Alertas de seguimiento" filas={datos.seguimiento} vacio="No hay alertas de seguimiento."
+      <div className="fila-titulo"><h2>Alertas escaladas a Auditoría</h2><Link className="boton" href="/documentos">Auditar documentos y Benford</Link></div>
+      <Tabla etiqueta="Alertas escaladas" filas={datos.seguimiento} vacio="No hay alertas escaladas."
         columnas={[
           { titulo: "Alerta", valor: (f) => f.id, render: (f) => <Link href={rutaAlerta(f.id)}>N.º {f.id}</Link> },
+          { titulo: "Regla", valor: (f) => f.regla ?? "—" },
           { titulo: "Expediente", valor: (f) => f.expediente },
-          { titulo: "Motivo", valor: (f) => f.explicacion, clase: "celda-texto" },
+          { titulo: "Detalle", valor: (f) => f.explicacion, clase: "celda-texto" },
           { titulo: "Estado", valor: (f) => ESTADOS[f.estado] },
         ]} />
     </section>
     <section className="seccion">
-      <h2>Registrar actuación</h2>
+      <h2>Registrar decisión formal</h2>
       <EstadoAccion accion={accion} />
       <form className="panel formulario" onSubmit={registrar}>
         <Campo titulo="Sobre qué actúas"><select value={entidad} onChange={(e) => setEntidad(e.target.value)}>
@@ -96,22 +101,22 @@ export function Integridad() {
           <option value="" disabled>Selecciona un registro</option>
           {opciones.map((f) => <option key={f.id} value={f.id}>{f.texto}</option>)}
         </select></Campo>
-        <Campo titulo="Tipo de actuación"><select name="tipo" required>
+        <Campo titulo="Decisión / medida"><select name="tipo" required>
           {Object.entries(TIPOS).map(([clave, nombre]) => <option key={clave} value={clave}>{nombre}</option>)}
         </select></Campo>
-        <Campo titulo="Descripción"><textarea name="descripcion" minLength={15} maxLength={2000} required /></Campo>
-        <div><button className="primario" disabled={accion.pendiente || !opciones.length}>Registrar en bitácora</button></div>
+        <Campo titulo="Sustento (queda sellado en bitácora)"><textarea name="descripcion" minLength={15} maxLength={2000} required /></Campo>
+        <div><button className="primario" disabled={accion.pendiente || !opciones.length}>Registrar decisión en bitácora</button></div>
       </form>
     </section>
     <section className="seccion">
-      <h2>Actuaciones recientes</h2>
-      <Tabla etiqueta="Actuaciones OCI" filas={datos.actuaciones} vacio="No hay actuaciones registradas."
+      <h2>Decisiones registradas</h2>
+      <Tabla etiqueta="Decisiones de Auditoría" filas={datos.actuaciones} vacio="No hay decisiones registradas."
         columnas={[
           { titulo: "Fecha", valor: (f) => f.creado_en, render: (f) => fechaHora(f.creado_en) },
           { titulo: "Expediente", valor: (f) => f.expediente, render: (f) => <Link href={rutaExpediente(f.expediente_id)}>{f.expediente}</Link> },
-          { titulo: "Tipo", valor: (f) => TIPOS[f.tipo] },
-          { titulo: "Descripción", valor: (f) => f.descripcion, clase: "celda-texto" },
-          { titulo: "Autor", valor: (f) => f.autor },
+          { titulo: "Decisión", valor: (f) => TIPOS[f.tipo] ?? f.tipo },
+          { titulo: "Sustento", valor: (f) => f.descripcion, clase: "celda-texto" },
+          { titulo: "Responsable", valor: (f) => f.autor },
         ]} />
     </section>
   </>;

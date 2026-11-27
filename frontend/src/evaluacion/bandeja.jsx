@@ -89,8 +89,8 @@ export function BandejaEvaluaciones() {
     <>
       <Encabezado titulo="Análisis de proveedores"
         descripcion={esDec
-          ? "Evalúa a los posibles proveedores de cada requerimiento, sustenta la selección y envíala a revisión independiente."
-          : "Consulta en solo lectura las evaluaciones de proveedores y sus decisiones."} />
+          ? "Indagación de mercado y cuadro comparativo de la Unidad de Abastecimiento (UNT): analiza postores en 6 dimensiones, contrasta documentación y envía a revisión independiente antes de emitir la orden en el SIGA."
+          : "Consulta en solo lectura las evaluaciones de proveedores, cuadros comparativos y decisiones sustentadas."} />
       <section className="registro-expedientes" aria-label="Bandeja de evaluaciones">
         <div className="registro-controles">
           <Resumen activo={vista ?? "todas"} onChange={(clave) => setParams((p) => {

@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  BarChart3, Bell, ClipboardCheck, Database, FileSearch, FileText, FlaskConical, FolderOpen,
-  LogOut, Menu, Plus, QrCode, ScanSearch, ShieldCheck, Wallet, X,
+  Bell, ClipboardCheck, Database, FileSearch, FileText, FlaskConical, FolderOpen,
+  LayoutDashboard, LogOut, Menu, Plus, QrCode, ScanSearch, ShieldCheck, Wallet, X,
 } from "lucide-react";
 import { useState } from "react";
 import { useAccion, useDatos } from "./api";
@@ -28,34 +28,52 @@ export function Marco({ actor, cerrarSesion, children }) {
   const accion = useAccion();
   const [menuEnRuta, setMenuEnRuta] = useState(null);
   const abierto = menuEnRuta === ruta;
-  const rutaMenu = ruta.endsWith("/conformidad") ? "/conformidad" :
-    ruta.endsWith("/tdr") ? "/lectura-ia" : ruta;
+  const rutaMenu = ruta === "/indicadores" ? "/dashboard"
+    : ruta.endsWith("/conformidad") ? "/conformidad"
+    : ruta.endsWith("/tdr") ? "/lectura-ia" : ruta;
   const rol = actor?.rol;
   const evaluaciones = useDatos(rol === "abastecimiento" && ruta ? `/evaluaciones?panel=${encodeURIComponent(ruta)}` : null);
   const porEvaluar = evaluaciones.datos?.filter((f) => f.me_toca_revisar
     || (f.estado_flujo === "en_evaluacion_proveedores" && (f.soy_evaluador || !f.evaluador_id))).length ?? 0;
   const pagos = useDatos(rol === "tesoreria" && ruta ? `/pagos/bandeja?panel=${encodeURIComponent(ruta)}` : null);
   const listosPagar = pagos.datos?.filter((f) => f.estado_pago === "listo").length ?? 0;
-  const alertas = useDatos(actor && ruta ? `/alertas?panel=${encodeURIComponent(ruta)}` : null);
+  const alertas = useDatos(actor && rol !== "abastecimiento" && ruta ? `/alertas?panel=${encodeURIComponent(ruta)}` : null);
   const porAtender = alertas.datos?.alertas.filter((a) => meToca(a, actor)).length ?? 0;
-  // Mapa de módulos por rol (PLAN.md, sección 5). El expediente es el eje de todo.
-  const grupos = [
+  // Menú enfocado por rol con Dashboard como vista principal.
+  const grupos = rol === "abastecimiento" ? [
+    ["Evaluación preventiva", [
+      ["/dashboard", "Dashboard", LayoutDashboard],
+      ["/prevencion", "Análisis de proveedores", ScanSearch],
+      ["/documentos", "Revisión documental", FileSearch],
+    ]],
+  ] : rol === "auditor" ? [
+    ["Auditoría e Integridad", [
+      ["/dashboard", "Dashboard", LayoutDashboard],
+      ["/alertas", "Alertas", Bell],
+      ["/integridad", "Integridad y decisiones", ShieldCheck],
+      ["/bitacora", "Bitácora", Database],
+    ]],
+    ["Supervisión (solo lectura)", [
+      ["/prevencion", "Análisis de proveedores", ScanSearch],
+      ["/documentos", "Revisión documental", FileSearch],
+    ]],
+  ] : [
     ["Contratación", [
+      ["/dashboard", "Dashboard", LayoutDashboard],
       ["/expedientes", "Expedientes", FolderOpen],
       ...(rol === "area_usuaria" ? [
         ["/nuevo-expediente", "Nuevo requerimiento", Plus],
         ["/lectura-ia", "Lectura de TDR", FileText],
         ["/conformidad", "Conformidades", ClipboardCheck],
       ] : []),
-      ...(["abastecimiento", "tesoreria", "auditor"].includes(rol)
-        ? [["/prevencion", "Análisis de proveedores", ScanSearch], ["/documentos", "Revisión documental", FileSearch]] : []),
-      ...(rol === "tesoreria" ? [["/pagos", "Verificación y pagos", Wallet]] : []),
+      ...(rol === "tesoreria" ? [
+        ["/pagos", "Verificación y pagos", Wallet],
+        ["/prevencion", "Análisis de proveedores", ScanSearch],
+        ["/documentos", "Revisión documental", FileSearch],
+      ] : []),
     ]],
     ["Seguimiento", [
       ["/alertas", "Alertas", Bell],
-      ["/indicadores", "Indicadores", BarChart3],
-      ...(rol === "auditor" ? [["/integridad", "Integridad y conflictos", ShieldCheck]] : []),
-      ...(rol === "auditor" ? [["/bitacora", "Bitácora", Database]] : []),
       ["/verificar", "Verificar sello", QrCode],
     ]],
   ];

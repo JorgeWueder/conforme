@@ -23,6 +23,7 @@
   "plazo_dias": 15,
   "penalidades": [
     "Penalidad por mora en la ejecución de la prestación, de 0.10 x monto / (0.40 x plazo) por cada día de atraso, hasta un máximo del 10 % del monto contratado.",
-    "Penalidad por no presentar el informe final dentro de los 3 días posteriores al término del servicio."
+    "Penalidad por no presentar el informe final dentro de los 3 días posteriores al término del servicio.",
+    "Penalidad de 0.5 % del monto contratado por cada ocurrencia en que el personal ejecute labores sin equipo de protección personal (EPP) completo o sin señalización preventiva."
   ]
 }

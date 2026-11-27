@@ -47,6 +47,14 @@ SEVERIDAD_POR_REGLA = {
     "R6": SEVERIDAD_MEDIA,
     "R7": SEVERIDAD_MEDIA,
     "R8": SEVERIDAD_MEDIA,
+    "P1": SEVERIDAD_ALTA,
+    "P2": SEVERIDAD_ALTA,
+    "P3": SEVERIDAD_ALTA,
+    "P4": SEVERIDAD_MEDIA,
+    "D1": SEVERIDAD_ALTA,
+    "D2": SEVERIDAD_ALTA,
+    "D3": SEVERIDAD_ALTA,
+    "I1": SEVERIDAD_ALTA,
 }
 NOMBRE_REGLA = {
     "R1": "Entregable sin evidencia",
@@ -57,10 +65,24 @@ NOMBRE_REGLA = {
     "R6": "Proveedor recurrente en la misma área",
     "R7": "Compras similares sucesivas al mismo proveedor",
     "R8": "Fechas incoherentes en el expediente",
+    "P1": "Conflicto de interés con personal de la entidad",
+    "P2": "Proveedor inhabilitado o empresa vinculada a sancionada",
+    "P3": "Posible colusión entre postores",
+    "P4": "Riesgo de empresa fachada o precio atípico",
+    "D1": "Cotizaciones gemelas o plagio entre postores",
+    "D2": "Inconsistencia en montos o anomalía Benford",
+    "D3": "Documentación vencida, alterada o con RUC ajeno",
+    "I1": "Alerta interna de integridad en evaluación",
 }
-AMBITO_POR_REGLA = {regla: ("preventiva_dec" if regla in ("R6", "R7")
-                             else "operativa_tesoreria") for regla in NOMBRE_REGLA}
-BLOQUEANTES_POR_REGLA = frozenset(("R1", "R4", "R5"))
+AMBITO_POR_REGLA = {
+    regla: (
+        "seguimiento_oci" if regla in ("P1", "P2", "P3", "P4", "D1", "D2", "D3", "I1")
+        else "preventiva_dec" if regla in ("R6", "R7")
+        else "operativa_tesoreria"
+    )
+    for regla in NOMBRE_REGLA
+}
+BLOQUEANTES_POR_REGLA = frozenset(("R1", "R4", "R5", "P1", "P2", "P3", "D1", "D3"))
 
 _CENTIMOS = Decimal("0.01")
 

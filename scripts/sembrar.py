@@ -89,6 +89,12 @@ def sembrar(sesion: Session, conjunto: dict, password: str) -> dict:
     sesion.add(dec2)
     sesion.flush()
     sesion.add(Usuario(persona_id=dec2.id, username="dec2", password_hash=hash_demo, rol="abastecimiento"))
+    # Responsable de Auditoría e Integridad (rol general de supervisión y escalamiento).
+    aud = Persona(dni=f"{generador.PREFIJO_DNI}900003", nombres="Claudia", apellidos="Mendoza Salgado",
+                  cargo="Responsable de Auditoría e Integridad", area_id=areas["OCI"].id)
+    sesion.add(aud)
+    sesion.flush()
+    sesion.add(Usuario(persona_id=aud.id, username="aud1", password_hash=hash_demo, rol="auditor"))
 
     proveedores = {p["ruc"]: Proveedor(**p) for p in conjunto["proveedores"]}
     sesion.add_all(proveedores.values())

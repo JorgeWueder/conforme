@@ -6,33 +6,74 @@ import { api, useAccion, useDatos } from "./api";
 import { ACCIONES, AVISO_ALERTAS, ESTADOS, REVISIONES, SEVERIDADES, alertaPendiente, fechaHora, nombreAlerta, rutaExpediente } from "./dominio";
 import { Aviso, Campo, Carga, Encabezado, EstadoAccion, Indicador, ReferenciaRegla, Resumen, Tabla } from "./ui";
 
+const DECISIONES_AUDITORIA = [
+  "Recomendar abstención o rotación",
+  "Derivar a PAD / Tribunal de Contrataciones / DGA",
+  "Solicitar descargos o ampliar indagación",
+  "Archivar con sustento",
+];
+
 function RevisionAlerta({ alerta, reglas, actor, recargar }) {
   const recurso = useDatos(`/alertas/${alerta.id}/revisiones`);
   const accion = useAccion();
   const implicado = alerta.persona_implicada_id === actor.persona_id;
   const puedeDescargar = implicado || alerta.conformante_id === actor.persona_id;
   const puedeRevisar = alerta.puede_revisar;
+  const esAuditor = actor.rol === "auditor";
 
   function revisar(evento, tipo) {
     evento.preventDefault();
     const form = evento.currentTarget;
     const datos = new FormData(form);
     const decision = tipo ?? evento.nativeEvent.submitter?.value;
-    const texto = datos.get("texto");
+    const medida = datos.get("medida");
+    const baseTexto = String(datos.get("texto") || "").trim();
+    const texto = medida && decision !== "descargo" ? `[${medida}] ${baseTexto}` : baseTexto;
     accion.ejecutar(async () => {
       await api(`/alertas/${alerta.id}/revisiones`, { method: "POST", data: { accion: decision, texto } });
       form.reset();
       recurso.recargar();
       recargar();
-      return { descargo: "Descargo registrado.", cierre: "Alerta cerrada.", escalamiento: "Alerta escalada." }[decision];
+      return { descargo: "Descargo registrado.", cierre: "Decisión registrada y alerta cerrada.", escalamiento: "Alerta escalada." }[decision];
     });
   }
+
+  const origenTexto = alerta.regla?.startsWith("I")
+    ? "Acción interna en evaluación"
+    : alerta.regla?.startsWith("D")
+      ? "Revisión forense documental"
+      : alerta.regla?.startsWith("P")
+        ? "Evaluación de proveedores (6 dim.)"
+        : "Control automático del sistema";
+  const tieneDecision = alerta.estado === "cerrada" || (recurso.datos?.length ?? 0) > 0;
+  const pasos = [
+    { n: "1", titulo: "Detectada automáticamente", detalle: origenTexto, tono: "verde" },
+    { n: "2", titulo: "Escalada a Auditoría e Integridad", detalle: "Sin edición por Abastecimiento", tono: alerta.ambito === "seguimiento_oci" || alerta.estado === "escalada" || alerta.estado === "cerrada" ? "verde" : "ambar" },
+    { n: "3", titulo: "Decisión registrada", detalle: alerta.estado === "cerrada" ? "Cerrada con sustento en bitácora" : tieneDecision ? "En seguimiento documentado" : "Pendiente de resolución", tono: alerta.estado === "cerrada" ? "verde" : tieneDecision ? "ambar" : "neutro" },
+  ];
+
+  const destinoAlerta = (alerta.regla?.startsWith("P") || alerta.regla?.startsWith("I"))
+    ? [`/prevencion/${alerta.expediente_id}`, "Ver evaluación de proveedores"]
+    : alerta.regla?.startsWith("D")
+      ? [`/documentos/${alerta.expediente_id}`, "Ver revisión documental"]
+      : [rutaExpediente(alerta.expediente_id), "Abrir expediente"];
 
   return (
     <section className="seccion">
       <div className="fila-titulo">
-        <h2>{alerta.expediente} · {alerta.regla} · {nombreAlerta(alerta, reglas)}</h2>
-        <Link className="boton" href={rutaExpediente(alerta.expediente_id)}><ExternalLink size={16} /> Abrir expediente</Link>
+        <h2>{alerta.expediente} · {nombreAlerta(alerta, reglas)}</h2>
+        <Link className="boton" href={destinoAlerta[0]}><ExternalLink size={16} /> {destinoAlerta[1]}</Link>
+      </div>
+      <div className="tarjetas" aria-label="Recorrido de la alerta">
+        {pasos.map((p) => (
+          <div key={p.n} className="panel ficha">
+            <div className="acciones">
+              <Indicador tono={p.tono}>Paso {p.n}</Indicador>
+              <strong>{p.titulo}</strong>
+            </div>
+            <small>{p.detalle}</small>
+          </div>
+        ))}
       </div>
       <article className="panel ficha">
         <div className="acciones">
@@ -64,13 +105,22 @@ function RevisionAlerta({ alerta, reglas, actor, recargar }) {
           <div><button className="primario" disabled={accion.pendiente}>Enviar descargo</button></div>
         </form>}
         {puedeRevisar && <form className="panel formulario" onSubmit={(e) => revisar(e)}>
-            <h3>{alerta.estado === "escalada" ? "Cerrar alerta" : "Cerrar o escalar"}</h3>
-            <Campo titulo="Motivo (obligatorio)"
-              ayuda={alerta.estado === "escalada" ? undefined : "Cierra si la alerta quedó aclarada; escala si necesita revisión de una instancia superior."}>
+            <h3>{esAuditor ? "Registrar decisión de Auditoría e Integridad" : (alerta.estado === "escalada" ? "Cerrar alerta" : "Cerrar o escalar")}</h3>
+            {esAuditor && <Campo titulo="Decisión recomendada">
+              <select name="medida" defaultValue={DECISIONES_AUDITORIA[0]}>
+                {DECISIONES_AUDITORIA.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </Campo>}
+            <Campo titulo="Sustento de la decisión (obligatorio)"
+              ayuda={esAuditor ? "Queda sellado en la bitácora inmutable (SHA-256) junto al expediente." : (alerta.estado === "escalada" ? undefined : "Cierra si la alerta quedó aclarada; escala si necesita revisión de una instancia superior.")}>
               <textarea name="texto" required /></Campo>
             <div className="acciones">
-              <button className="primario" name="accion" value="cierre" disabled={accion.pendiente}>Cerrar alerta</button>
-              {alerta.estado !== "escalada" && <button name="accion" value="escalamiento" disabled={accion.pendiente}>Escalar</button>}
+              <button className="primario" name="accion" value="cierre" disabled={accion.pendiente}>
+                {esAuditor ? "Registrar decisión y cerrar" : "Cerrar alerta"}
+              </button>
+              {alerta.estado !== "escalada" && <button name="accion" value="escalamiento" disabled={accion.pendiente}>
+                {esAuditor ? "Mantener escalada / derivar" : "Escalar"}
+              </button>}
             </div>
           </form>}
         {!puedeRevisar && !puedeDescargar && <small>La revisión corresponde a {RESPONSABLES[alerta.ambito]}. Si figuras en esta alerta, debe actuar otra persona.</small>}
@@ -88,10 +138,10 @@ export function meToca(alerta, actor) {
   return puedePresentarDescargo || alerta.puede_revisar;
 }
 
-const AMBITOS = { operativa_tesoreria: "Ejecución y pago", preventiva_dec: "Preventiva",
-  seguimiento_oci: "Seguimiento OCI" };
+const AMBITOS = { preventiva_dec: "Proveedores y documentos", operativa_tesoreria: "Ejecución y pago",
+  seguimiento_oci: "Auditoría e Integridad" };
 const RESPONSABLES = { operativa_tesoreria: "Tesorería", preventiva_dec: "otro especialista DEC",
-  seguimiento_oci: "OCI" };
+  seguimiento_oci: "Auditoría e Integridad" };
 
 const VISTAS_ALERTA = {
   atender: { titulo: "Por atender", filtro: meToca },
@@ -133,17 +183,22 @@ export function Alertas({ actor }) {
   const opciones = Object.fromEntries(Object.entries(reglas).map(([clave, nombre]) => [clave, `${clave} · ${nombre}`]));
   const elegida = alertas.find((a) => String(a.id) === seleccion);
   const tipo = params.get("tipo") ?? "todos";
-  const ambito = params.get("ambito") ?? "";
+  const ambitoParam = params.get("ambito");
+  const ambito = ambitoParam !== null ? ambitoParam : (actor.rol === "auditor" ? "seguimiento_oci" : (actor.rol === "abastecimiento" ? "preventiva_dec" : ""));
   const delTipo = alertas.filter((a) => (tipo === "todos" || a.tipo_prestacion === tipo)
     && (!ambito || a.ambito === ambito));
+  const vistaEfectiva = vista === "atender" && actor.rol === "abastecimiento"
+    && delTipo.filter((a) => meToca(a, actor)).length === 0
+    && delTipo.some((a) => a.estado === "abierta" && alertaPendiente(a))
+    ? "abierta" : vista;
   const filas = delTipo
-    .filter((a) => (!vista || VISTAS_ALERTA[vista].filtro(a, actor)) && (!regla || a.regla === regla))
+    .filter((a) => (!vistaEfectiva || VISTAS_ALERTA[vistaEfectiva].filtro(a, actor)) && (!regla || a.regla === regla))
     .sort(prioridad);
   const columnas = [
     { titulo: "N.º", valor: (a) => a.id, render: (a) => <Link href={`?${new URLSearchParams({ ...Object.fromEntries(params), alerta: a.id })}`}>{a.id}</Link> },
     { titulo: "Severidad", valor: (a) => a.severidad, render: (a) => a.vigente === false ? "—"
       : <Indicador tono={a.severidad === "alta" ? "rojo" : "ambar"}>{SEVERIDADES[a.severidad]}</Indicador> },
-    { titulo: "Regla", valor: (a) => a.regla + " · " + nombreAlerta(a, reglas), clase: "celda-texto" },
+    { titulo: "Señal detectada", valor: (a) => nombreAlerta(a, reglas), clase: "celda-texto" },
     { titulo: "Ámbito", valor: (a) => AMBITOS[a.ambito] },
     { titulo: "Efecto", valor: (a) => a.bloqueante && alertaPendiente(a) ? "Bloquea" : "Revisión",
       render: (a) => a.bloqueante && alertaPendiente(a)
@@ -158,7 +213,7 @@ export function Alertas({ actor }) {
   return (
     <>
       <Encabezado titulo="Bandeja de alertas" descripcion={AVISO_ALERTAS} />
-      <Resumen activo={vista} onChange={(clave) => cambiar("ver", clave ?? "todas")}
+      <Resumen activo={vistaEfectiva} onChange={(clave) => cambiar("ver", clave ?? "todas")}
         opciones={Object.entries(VISTAS_ALERTA).map(([clave, { titulo, filtro }]) => ({
           clave, titulo, valor: delTipo.filter((a) => filtro(a, actor)).length,
           tono: clave === "atender" ? "ambar" : "neutro", ayuda: clave === "atender" ? AYUDA_ATENDER[actor.rol] : undefined,

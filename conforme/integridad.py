@@ -12,7 +12,10 @@ from conforme.modelos import (
 )
 from conforme.permisos import Actor, exigir_rol
 
-TIPOS = ("observacion_seguimiento", "requerimiento_info", "recomendacion", "alerta_seguimiento")
+TIPOS = (
+    "recomendar_abstencion", "derivar_sancion", "solicitar_descargos", "archivar_sustento",
+    "observacion_seguimiento", "requerimiento_info", "recomendacion", "alerta_seguimiento",
+)
 ENTIDADES = {"expediente": Expediente, "revision_previa": RevisionPrevia,
              "conflicto_interes": ConflictoInteres}
 
@@ -98,6 +101,7 @@ def panel(sesion: Session, actor: Actor) -> dict:
                   if r.expediente_id in expedientes]
     seguimiento = [{"id": a.id, "expediente_id": a.expediente_id,
                     "expediente": expedientes[a.expediente_id].codigo,
+                    "regla": a.regla, "severidad": a.severidad,
                     "explicacion": a.explicacion, "estado": a.estado}
                    for a in sesion.scalars(select(Alerta).where(
                        Alerta.ambito == "seguimiento_oci").order_by(Alerta.id.desc()))
